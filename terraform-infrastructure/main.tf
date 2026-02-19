@@ -21,35 +21,56 @@ locals {
 
   identity_validation_id_trimmed = trimspace(var.identity_validation_id == null ? "" : var.identity_validation_id)
 
-  ado_sp_client_id = (
-    length(trimspace(var.ado_service_principal_client_id == null ? "" : var.ado_service_principal_client_id)) > 0
-  ) ? trimspace(var.ado_service_principal_client_id == null ? "" : var.ado_service_principal_client_id) : try(azuread_application.ado_app[0].client_id, null)
+  keyvault_name_input = var.keyvault_name != null ? trimspace(var.keyvault_name) : ""
 
-  ado_wif_issuer_effective = (
-    length(trimspace(var.ado_wif_issuer == null ? "" : var.ado_wif_issuer)) > 0
-  ) ? trimspace(var.ado_wif_issuer == null ? "" : var.ado_wif_issuer) : try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_issuer, null)
+  github_owner_input_trimmed = trimspace(var.github_owner == null ? "" : var.github_owner)
+  github_repo_input_trimmed  = trimspace(var.github_repo == null ? "" : var.github_repo)
+  github_ref_input_trimmed   = trimspace(var.github_ref)
 
-  ado_wif_subject_effective = (
-    length(trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject)) > 0
-  ) ? trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject) : try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_subject, null)
+  github_owner_detected = try(trimspace(data.external.github_oidc[0].result.owner), "")
+  github_repo_detected  = try(trimspace(data.external.github_oidc[0].result.repo), "")
+  github_ref_detected   = try(trimspace(data.external.github_oidc[0].result.ref), "")
 
-  # Object id for the ADO service principal, regardless of whether Terraform created it
-  # or you provided an existing client id.
-  ado_sp_object_id_effective = var.ado_enabled ? (
-    var.ado_create_app ? try(azuread_service_principal.ado_sp[0].object_id, null) : try(data.azuread_service_principal.ado_sp_existing[0].object_id, null)
+  github_owner_effective = var.github_enabled ? (
+    (local.github_owner_input_trimmed != "" && !strcontains(upper(local.github_owner_input_trimmed), "REPLACE_ME")) ? local.github_owner_input_trimmed : local.github_owner_detected
   ) : null
 
-  keyvault_name_input = var.keyvault_name != null ? trimspace(var.keyvault_name) : ""
+  github_repo_effective = var.github_enabled ? (
+    (local.github_repo_input_trimmed != "" && !strcontains(upper(local.github_repo_input_trimmed), "REPLACE_ME")) ? local.github_repo_input_trimmed : local.github_repo_detected
+  ) : null
+
+  github_ref_effective = var.github_enabled ? (
+    local.github_ref_input_trimmed != "" ? local.github_ref_input_trimmed : (
+      local.github_ref_detected != "" ? local.github_ref_detected : "refs/heads/main"
+    )
+  ) : null
+
+  github_repository  = (local.github_owner_effective != null && local.github_owner_effective != "" && local.github_repo_effective != null && local.github_repo_effective != "") ? "${local.github_owner_effective}/${local.github_repo_effective}" : null
+  github_fic_subject = local.github_repository != null ? "repo:${local.github_repository}:ref:${local.github_ref_effective}" : null
+
+  github_sp_object_id_effective = var.github_enabled ? try(azuread_service_principal.github_sp[0].object_id, null) : null
+}
+
+data "external" "github_oidc" {
+  count = var.github_enabled && var.github_autodetect ? 1 : 0
+
+  program = [
+    "pwsh",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "${path.module}/detect-github-oidc.ps1"
+  ]
+
+  query = {
+    enabled = "true"
+  }
 }
 
 data "azurerm_client_config" "current" {}
 
 data "azurerm_subscription" "current" {}
-
-data "azuread_service_principal" "ado_sp_existing" {
-  count     = var.ado_enabled && !var.ado_create_app ? 1 : 0
-  client_id = local.ado_sp_client_id
-}
 
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
@@ -82,14 +103,14 @@ resource "azurerm_role_assignment" "current_identity_verifier" {
 }
 
 resource "azapi_resource" "certificate_profile" {
-  count     = var.identity_validation_id == null ? 0 : 1
+  count     = local.identity_validation_id_trimmed != "" ? 1 : 0
   type      = "Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles@2025-10-13"
   name      = var.certificate_profile_name
   parent_id = azapi_resource.code_signing_account.id
 
   body = {
     properties = {
-      identityValidationId  = var.identity_validation_id
+      identityValidationId  = local.identity_validation_id_trimmed
       profileType           = var.certificate_profile_type
       includeStreetAddress  = var.certificate_profile_include_street_address
       includePostalCode     = var.certificate_profile_include_postal_code
@@ -97,50 +118,64 @@ resource "azapi_resource" "certificate_profile" {
   }
 }
 
-resource "azuread_application" "ado_app" {
-  count        = var.ado_enabled && var.ado_create_app ? 1 : 0
-  display_name = var.ado_app_display_name
+resource "azuread_application" "github_app" {
+  count        = var.github_enabled ? 1 : 0
+  display_name = var.github_app_display_name
 }
 
-resource "azuread_service_principal" "ado_sp" {
-  count     = var.ado_enabled && var.ado_create_app ? 1 : 0
-  client_id = azuread_application.ado_app[0].client_id
+resource "azuread_service_principal" "github_sp" {
+  count     = var.github_enabled ? 1 : 0
+  client_id = azuread_application.github_app[0].client_id
 }
 
-resource "azuread_application_federated_identity_credential" "ado_fic" {
-  count          = var.ado_enabled && var.ado_create_app && var.ado_service_endpoint_authentication_scheme == "WorkloadIdentityFederation" ? 1 : 0
-  application_id = azuread_application.ado_app[0].id
-  display_name   = "ado-wif"
-  description    = "Azure DevOps workload identity federation"
+resource "azuread_application_federated_identity_credential" "github_fic" {
+  count          = var.github_enabled ? 1 : 0
+  application_id = azuread_application.github_app[0].id
+  display_name   = "github-actions"
+  description    = "GitHub Actions OIDC federated credential"
   audiences      = ["api://AzureADTokenExchange"]
-  issuer         = local.ado_wif_issuer_effective
-  subject        = local.ado_wif_subject_effective
+  issuer         = "https://token.actions.githubusercontent.com"
+  subject        = local.github_fic_subject
 
-  depends_on = [azuredevops_serviceendpoint_azurerm.azurerm]
+  depends_on = [azuread_service_principal.github_sp]
+
+  lifecycle {
+    precondition {
+      condition = (
+        var.github_enabled == false || (
+          local.github_owner_effective != null && local.github_owner_effective != "" &&
+          local.github_repo_effective != null && local.github_repo_effective != "" &&
+          local.github_ref_effective != null && can(regex("^refs/heads/[^\\s]+$", local.github_ref_effective))
+        )
+      )
+
+      error_message = "github_enabled=true but GitHub repo/ref could not be determined. Either set github_owner/github_repo/github_ref explicitly, or set github_autodetect=true and run Terraform from a git clone with origin pointing to https://github.com/<owner>/<repo>.git (or SSH equivalent)."
+    }
+  }
 }
 
-resource "azurerm_role_assignment" "ado_account_signer" {
-  count = var.assign_signer_role_to_ado_sp_at_account_scope && var.ado_enabled ? 1 : 0
+resource "azurerm_role_assignment" "github_account_signer" {
+  count = var.assign_signer_role_to_github_sp_at_account_scope && var.github_enabled ? 1 : 0
 
   scope                = azapi_resource.code_signing_account.id
   role_definition_name = "Artifact Signing Certificate Profile Signer"
-  principal_id         = local.ado_sp_object_id_effective
+  principal_id         = local.github_sp_object_id_effective
 }
 
-resource "azurerm_role_assignment" "ado_profile_signer" {
-  count = var.assign_signer_role_to_ado_sp && var.ado_enabled && length(azapi_resource.certificate_profile) > 0 ? 1 : 0
+resource "azurerm_role_assignment" "github_profile_signer" {
+  count = var.assign_signer_role_to_github_sp && var.github_enabled && length(azapi_resource.certificate_profile) > 0 ? 1 : 0
 
   scope                = azapi_resource.certificate_profile[0].id
   role_definition_name = "Artifact Signing Certificate Profile Signer"
-  principal_id         = local.ado_sp_object_id_effective
+  principal_id         = local.github_sp_object_id_effective
 }
 
-resource "azurerm_role_assignment" "ado_rg_contributor" {
-  count = var.assign_contributor_role_to_ado_sp && var.ado_enabled ? 1 : 0
+resource "azurerm_role_assignment" "github_rg_contributor" {
+  count = var.assign_contributor_role_to_github_sp && var.github_enabled ? 1 : 0
 
   scope                = azurerm_resource_group.rg.id
   role_definition_name = "Contributor"
-  principal_id         = local.ado_sp_object_id_effective
+  principal_id         = local.github_sp_object_id_effective
 }
 
 resource "random_string" "kv_suffix" {
@@ -201,11 +236,11 @@ resource "azurerm_role_assignment" "kv_administrator_current" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-resource "azurerm_role_assignment" "kv_secrets_user_ado" {
-  count                = var.keyvault_enabled && var.ado_enabled ? 1 : 0
+resource "azurerm_role_assignment" "kv_secrets_user_github" {
+  count                = var.keyvault_enabled && var.github_enabled ? 1 : 0
   scope                = azurerm_key_vault.kv[0].id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = local.ado_sp_object_id_effective
+  principal_id         = local.github_sp_object_id_effective
 }
 
 resource "time_sleep" "kv_rbac_propagation" {
@@ -214,7 +249,8 @@ resource "time_sleep" "kv_rbac_propagation" {
 
   depends_on = [
     azurerm_role_assignment.kv_secrets_officer_current,
-    azurerm_role_assignment.kv_secrets_user_ado,
+    azurerm_role_assignment.kv_secrets_user_github,
+    azurerm_role_assignment.kv_administrator_current,
   ]
 }
 
@@ -266,154 +302,3 @@ resource "azurerm_key_vault_secret" "artifact_signing_identity_validation_id" {
   ]
 }
 
-resource "time_sleep" "rbac_propagation" {
-  count           = length(azurerm_role_assignment.ado_profile_signer) > 0 && var.rbac_propagation_wait_duration != "0s" ? 1 : 0
-  create_duration = var.rbac_propagation_wait_duration
-
-  depends_on = [azurerm_role_assignment.ado_profile_signer]
-}
-
-resource "azuredevops_project" "project" {
-  count              = var.ado_enabled ? 1 : 0
-  name               = var.ado_project_name
-  description        = var.ado_project_description
-  visibility         = var.ado_project_visibility
-  version_control    = "Git"
-  work_item_template = "Agile"
-}
-
-resource "azuredevops_git_repository" "repo" {
-  count         = var.ado_enabled ? 1 : 0
-  project_id    = azuredevops_project.project[0].id
-  name          = var.ado_repo_name
-  default_branch = "refs/heads/main"
-  initialization {
-    init_type = "Clean"
-  }
-}
-
-resource "azuredevops_serviceendpoint_azurerm" "azurerm" {
-  count                                 = var.ado_enabled ? 1 : 0
-  project_id                             = azuredevops_project.project[0].id
-  service_endpoint_name                  = var.ado_service_connection_name
-  description                            = var.ado_service_connection_description
-  service_endpoint_authentication_scheme = var.ado_service_endpoint_authentication_scheme
-
-  dynamic "credentials" {
-    for_each = var.ado_service_endpoint_authentication_scheme == "WorkloadIdentityFederation" ? [1] : []
-    content {
-      serviceprincipalid = local.ado_sp_client_id
-    }
-  }
-
-  dynamic "credentials" {
-    for_each = var.ado_service_endpoint_authentication_scheme == "ServicePrincipal" ? [1] : []
-    content {
-      serviceprincipalid  = local.ado_sp_client_id
-      serviceprincipalkey = var.ado_service_principal_client_secret
-    }
-  }
-
-  azurerm_spn_tenantid      = data.azurerm_client_config.current.tenant_id
-  azurerm_subscription_id   = data.azurerm_subscription.current.subscription_id
-  azurerm_subscription_name = data.azurerm_subscription.current.display_name
-
-  features {
-    validate = false
-  }
-
-  depends_on = [azuread_service_principal.ado_sp]
-}
-
-resource "azuredevops_variable_group" "signing" {
-  count        = var.ado_enabled ? 1 : 0
-  project_id   = azuredevops_project.project[0].id
-  name         = "artifact-signing-demo"
-  description  = "Managed by Terraform"
-  allow_access = true
-
-  variable {
-    name  = "keyVaultName"
-    value = var.keyvault_enabled ? local.keyvault_name_effective : ""
-  }
-
-  variable {
-    name  = "artifactSigningEndpoint"
-    value = local.artifact_signing_endpoint != null ? local.artifact_signing_endpoint : ""
-  }
-
-  variable {
-    name  = "artifactSigningAccountName"
-    value = azapi_resource.code_signing_account.name
-  }
-
-  variable {
-    name  = "artifactSigningCertificateProfileName"
-    value = var.certificate_profile_name
-  }
-
-  variable {
-    name  = "artifactSigningResourceGroupName"
-    value = azurerm_resource_group.rg.name
-  }
-
-  variable {
-    name  = "artifactSigningCertificateProfileType"
-    value = var.certificate_profile_type
-  }
-
-  variable {
-    name  = "adoServicePrincipalObjectId"
-    value = var.pipeline_attempt_rbac_assignment && local.ado_sp_object_id_effective != null ? local.ado_sp_object_id_effective : ""
-  }
-}
-
-resource "azuredevops_build_definition" "pipeline" {
-  count      = var.ado_enabled ? 1 : 0
-  project_id = azuredevops_project.project[0].id
-  name       = var.ado_pipeline_name
-  path       = "\\"
-
-  repository {
-    repo_type   = "TfsGit"
-    repo_id     = azuredevops_git_repository.repo[0].id
-    branch_name = azuredevops_git_repository.repo[0].default_branch
-    yml_path    = var.ado_pipeline_yaml_path
-  }
-
-  ci_trigger {
-    use_yaml = true
-  }
-
-  variable_groups = [
-    azuredevops_variable_group.signing[0].id,
-  ]
-
-  features {
-    skip_first_run = true
-  }
-}
-
-resource "azuredevops_pipeline_authorization" "auth_endpoint" {
-  count       = var.ado_enabled ? 1 : 0
-  project_id  = azuredevops_project.project[0].id
-  resource_id = azuredevops_serviceendpoint_azurerm.azurerm[0].id
-  type        = "endpoint"
-  pipeline_id = azuredevops_build_definition.pipeline[0].id
-}
-
-resource "azuredevops_pipeline_authorization" "auth_variablegroup" {
-  count       = var.ado_enabled ? 1 : 0
-  project_id  = azuredevops_project.project[0].id
-  resource_id = azuredevops_variable_group.signing[0].id
-  type        = "variablegroup"
-  pipeline_id = azuredevops_build_definition.pipeline[0].id
-}
-
-resource "azuredevops_pipeline_authorization" "auth_repository" {
-  count       = var.ado_enabled ? 1 : 0
-  project_id  = azuredevops_project.project[0].id
-  resource_id = azuredevops_git_repository.repo[0].id
-  type        = "repository"
-  pipeline_id = azuredevops_build_definition.pipeline[0].id
-}

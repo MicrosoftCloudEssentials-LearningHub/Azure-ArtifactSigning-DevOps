@@ -1,0 +1,5 @@
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\publish\SigningDemo.exe
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\publish\SigningDemo.dll
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\publish\SigningDemo.deps.json
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\publish\SigningDemo.runtimeconfig.json
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\publish\SigningDemo.pdb

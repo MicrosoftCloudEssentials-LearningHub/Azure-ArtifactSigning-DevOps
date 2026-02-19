@@ -1,0 +1,182 @@
+# Builds a demo .NET exe, pulls signing inputs from Key Vault,
+# then signs and verifies the binary using SignTool + the Azure Artifact Signing dlib.
+
+name: Artifact Signing Demo
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sign:
+    runs-on: windows-latest
+
+    env:
+      BUILD_CONFIGURATION: Release
+      RUNTIME_IDENTIFIER: win-x64
+
+      # Set to 'true' if you want the workflow to create the certificate profile when missing.
+      # Default is 'false' because identity validation + certificate profile creation are typically done in the Azure Portal.
+      # If you set this to 'true', you must also provide the Identity validation Id (via Key Vault secret 'artifactSigningIdentityValidationId').
+      AUTO_CREATE_CERT_PROFILE: 'false'
+
+      # Non-secret inputs (configure as GitHub repo variables or secrets):
+      KEYVAULT_NAME: ${{ secrets.KEYVAULT_NAME }}
+      ARTIFACT_SIGNING_RESOURCE_GROUP: ${{ secrets.ARTIFACT_SIGNING_RESOURCE_GROUP }}
+
+      # Optional override; only needed when creating the cert profile:
+      CERT_PROFILE_TYPE: PublicTrustTest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish (unsigned)
+        shell: pwsh
+        run: |
+          dotnet publish .\SigningDemo\SigningDemo.csproj -c $env:BUILD_CONFIGURATION -r $env:RUNTIME_IDENTIFIER --self-contained false
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Load signing variables from Key Vault
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:KEYVAULT_NAME)) { throw "Missing KEYVAULT_NAME (set as a GitHub secret)." }
+
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\load-signing-config-from-kv.ps1
+
+      - name: Ensure certificate profile exists (optional)
+        if: ${{ env.AUTO_CREATE_CERT_PROFILE == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $rg = "$env:ARTIFACT_SIGNING_RESOURCE_GROUP".Trim()
+          if ([string]::IsNullOrWhiteSpace($rg)) { throw "Missing ARTIFACT_SIGNING_RESOURCE_GROUP" }
+
+          $accountName = "$env:ARTIFACT_SIGNING_ACCOUNT_NAME".Trim()
+          $profileName = "$env:ARTIFACT_SIGNING_CERT_PROFILE_NAME".Trim()
+          $profileType = "$env:CERT_PROFILE_TYPE".Trim()
+          if ([string]::IsNullOrWhiteSpace($profileType)) { $profileType = 'PublicTrust' }
+
+          if ([string]::IsNullOrWhiteSpace($accountName)) { throw "Missing ARTIFACT_SIGNING_ACCOUNT_NAME" }
+          if ([string]::IsNullOrWhiteSpace($profileName)) { throw "Missing ARTIFACT_SIGNING_CERT_PROFILE_NAME" }
+
+          $identityValidationId = "$env:ARTIFACT_SIGNING_IDENTITY_VALIDATION_ID".Trim()
+          if ([string]::IsNullOrWhiteSpace($identityValidationId)) {
+            throw "AUTO_CREATE_CERT_PROFILE=true but Key Vault secret 'artifactSigningIdentityValidationId' is empty. Complete identity validation in the portal and set that secret."
+          }
+
+          $subId = (az account show --query id -o tsv)
+          if ([string]::IsNullOrWhiteSpace($subId)) { throw "Unable to determine subscription id from Azure CLI context." }
+
+          $profileResourceId = "/subscriptions/$subId/resourceGroups/$rg/providers/Microsoft.CodeSigning/codeSigningAccounts/$accountName/certificateProfiles/$profileName"
+          $profileUrl = "https://management.azure.com$profileResourceId?api-version=2025-10-13"
+
+          Write-Host "Checking certificate profile: $profileResourceId"
+
+          az rest --method get --url $profileUrl --only-show-errors | Out-Null
+          $getExit = $LASTEXITCODE
+
+          if ($getExit -eq 0) {
+            Write-Host "Certificate profile exists: $profileName"
+            exit 0
+          }
+
+          Write-Host "Certificate profile missing (or not readable). Creating it..."
+
+          $body = @{
+            properties = @{
+              identityValidationId  = $identityValidationId
+              profileType          = $profileType
+              includeStreetAddress = $false
+              includePostalCode    = $false
+            }
+          } | ConvertTo-Json -Depth 10
+
+          az rest --method put --url $profileUrl --body $body --only-show-errors | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create certificate profile via ARM. Ensure the GitHub identity has RG Contributor (or equivalent) permissions." }
+
+          Write-Host "Created certificate profile: $profileName"
+
+      - name: Sign with Azure Artifact Signing (SignTool + dlib)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tempRoot = Join-Path "$env:RUNNER_TEMP" "artifact-signing"
+          New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+          $nugetExe = Join-Path $tempRoot "nuget.exe"
+          Invoke-WebRequest -Uri https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile $nugetExe
+
+          $sdkOut = Join-Path $tempRoot "sdk"
+          & $nugetExe install Microsoft.Windows.SDK.BuildTools -x -OutputDirectory $sdkOut | Out-Host
+
+          $signtool = Get-ChildItem -Path $sdkOut -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match "\\x64\\signtool\\.exe$" } | Select-Object -First 1
+          if (-not $signtool) {
+            $signtool = Get-ChildItem -Path $sdkOut -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match "\\x64\\signtool\\.exe" } | Select-Object -First 1
+          }
+          if (-not $signtool) { throw "signtool.exe not found after extracting Microsoft.Windows.SDK.BuildTools" }
+
+          $dlibOut = Join-Path $tempRoot "dlib"
+          & $nugetExe install Microsoft.ArtifactSigning.Client -x -OutputDirectory $dlibOut | Out-Host
+
+          $dlib = Get-ChildItem -Path $dlibOut -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object { $_.FullName -match "\\x64\\Azure\\.CodeSigning\\.Dlib\\.dll$" } | Select-Object -First 1
+          if (-not $dlib) {
+            $dlib = Get-ChildItem -Path $dlibOut -Recurse -Filter Azure.CodeSigning.Dlib.dll | Select-Object -First 1
+          }
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found after extracting Microsoft.ArtifactSigning.Client" }
+
+          $metadataPath = Join-Path $tempRoot "metadata.json"
+          $metadata = @{
+            Endpoint               = "$env:ARTIFACT_SIGNING_ENDPOINT"
+            CodeSigningAccountName = "$env:ARTIFACT_SIGNING_ACCOUNT_NAME"
+            CertificateProfileName = "$env:ARTIFACT_SIGNING_CERT_PROFILE_NAME"
+            CorrelationId          = "gha-${{ github.run_id }}"
+          } | ConvertTo-Json -Depth 4
+
+          $metadata | Out-File -FilePath $metadataPath -Encoding utf8
+
+          $unsigned = "$env:GITHUB_WORKSPACE\SigningDemo\bin\$env:BUILD_CONFIGURATION\net8.0\$env:RUNTIME_IDENTIFIER\publish\SigningDemo.exe"
+          if (-not (Test-Path $unsigned)) { throw "Unsigned binary not found at $unsigned" }
+
+          $signedDir = "$env:GITHUB_WORKSPACE\artifacts"
+          New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
+          $signed = Join-Path $signedDir "SigningDemo.signed.exe"
+          Copy-Item $unsigned $signed -Force
+
+          Write-Host "Using signtool: $($signtool.FullName)"
+          Write-Host "Using dlib: $($dlib.FullName)"
+
+          & $signtool.FullName sign /v /debug /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 /dlib "$($dlib.FullName)" /dmdf "$metadataPath" "$signed"
+
+      - name: Verify signature
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signed = "$env:GITHUB_WORKSPACE\artifacts\SigningDemo.signed.exe"
+          Get-AuthenticodeSignature $signed | Format-List
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-drop
+          path: artifacts\

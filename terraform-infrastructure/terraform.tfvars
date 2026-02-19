@@ -5,7 +5,9 @@ location                  = "eastus"
 resource_group_name       = "RG-artifact-signing-demo"
 code_signing_account_name = "aasdemo-replace-me"
 
-# After you complete Identity validation in the Azure portal, paste the Identity validation Id here.
+# Optional.
+# Only needed if you want Terraform (or the workflow with AUTO_CREATE_CERT_PROFILE=true) to create the certificate profile.
+# If you create the certificate profile in the Azure portal, leave this as null.
 identity_validation_id = null
 
 certificate_profile_name = "demo-code-signing"
@@ -20,19 +22,16 @@ keyvault_enabled = true
 # grant the identity running `terraform apply` the Key Vault Administrator role.
 keyvault_grant_administrator_to_current = true
 
-# Azure DevOps Workload Identity Federation (optional)
-ado_enabled         = false
-ado_org_service_url = "https://dev.azure.com/REPLACE_ME"
+# GitHub Actions OIDC (recommended)
+# Set these to match your GitHub repo, so Terraform can create the federated identity credential.
+github_enabled = false
+github_owner = "REPLACE_ME"
+github_repo = "Azure-ArtifactSigning-DevOps"
+github_ref = "refs/heads/main"
 
-# Auth for the azuredevops provider is usually via PAT:
-#   $env:AZDO_PERSONAL_ACCESS_TOKEN = "..."
+# Default: Terraform manages the certificate profile once you paste the Identity validation Id
+# into identity_validation_id. GitHub Actions then only needs to sign at the profile scope.
+assign_contributor_role_to_github_sp             = false
+assign_signer_role_to_github_sp_at_account_scope = false
+assign_signer_role_to_github_sp                  = true
 
-ado_create_app = true
-
-# If you set ado_service_endpoint_authentication_scheme = "ServicePrincipal",
-# also set the secret via an env var instead of checking it in:
-#   $env:TF_VAR_ado_service_principal_client_secret = "..."
-
-# If ado_enabled=true and Terraform creates the service connection, Issuer/Subject are auto-populated.
-ado_wif_issuer  = null
-ado_wif_subject = null
