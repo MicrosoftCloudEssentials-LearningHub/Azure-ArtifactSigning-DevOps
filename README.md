@@ -23,6 +23,7 @@ Last updated: 2026-02-19
 - [Quickstart: Set up Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart?tabs=registerrp-portal%2Caccount-portal%2Corgvalidation%2Ccertificateprofile-portal%2Cdeleteresources-portal)
 - [Set up signing integrations to use Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations)
 - [Microsoft Included CA Certificate List](https://ccadb.my.salesforce-sites.com/microsoft/IncludedCACertificateReportForMSFT)
+- [Artifact Signing trust models](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/artifact-signing/concept-trust-models.md)
 
 </details>
 
@@ -78,23 +79,18 @@ From [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifac
 
 ## Deploy with Terraform
 
-Terraform files live in `terraform-infrastructure/`.
+> Terraform files live in `terraform-infrastructure/`.
 
-If you're using GitHub Actions, prefer the fully automated bootstrap path below (it configures GitHub OIDC + secrets and runs Terraform for you):
+1) Edit `terraform-infrastructure/terraform.tfvars` and set a globally-unique account name. By default (`github_autodetect = true`), Terraform will auto-detect `github_owner/github_repo` during `terraform apply` (from GitHub Actions env vars if present, otherwise from your local git `origin`). `github_ref` defaults to `refs/heads/main` unless you set it explicitly. If this repo is not a git clone (for example, you downloaded a zip) or `origin` is not set to GitHub, autodetect can’t determine the values.
 
-```pwsh
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-github-actions.ps1
-```
+> [!IMPORTANT]
+> If you're using GitHub Actions, prefer the fully automated bootstrap path below (it configures GitHub OIDC + secrets and runs Terraform for you):
+   ```pwsh
+   pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-github-actions.ps1
+   ```
+> Not using the bootstrap script? See the internal runbook: [_docs/README.md](_docs/README.md).
 
-1) Edit `terraform-infrastructure/terraform.tfvars` and set a globally-unique account name.
-
-Not using the bootstrap script? See the internal runbook: [_docs/README.md](_docs/README.md).
-
-By default (`github_autodetect = true`), Terraform will auto-detect `github_owner/github_repo` during `terraform apply` (from GitHub Actions env vars if present, otherwise from your local git `origin`). `github_ref` defaults to `refs/heads/main` unless you set it explicitly.
-
-If this repo is not a git clone (for example, you downloaded a zip) or `origin` is not set to GitHub, autodetect can’t determine the values.
-
-2) Run Terraform (manual):
+2) Run Terraform:
 
 ```pwsh
 cd terraform-infrastructure
@@ -102,31 +98,40 @@ terraform init
 terraform apply -auto-approve
 ```
 
-What this first `terraform apply` does:
+<details>
+<summary><b>What this first `terraform apply` does: </b> (Click to expand)</summary>
+
 - Creates the resource group, Artifact Signing account, and Key Vault.
 - Populates Key Vault secrets for the workflow (`artifactSigningEndpoint`, `artifactSigningAccountName`, `artifactSigningCertificateProfileName`).
 - If `github_enabled = true`: creates the GitHub OIDC Entra app/service principal + federated identity credential, and assigns RBAC so the workflow can read Key Vault secrets and sign.
 
-What it cannot do:
-- Complete Artifact Signing **identity validation** (this is portal-only).
+</details>
 
-Identity validation (portal-only):
+> [!IMPORTANT]
+> What it cannot do: Complete Artifact Signing **identity validation** (this is portal-only).
 
-
-In Azure portal:
+Identity validation (portal-only). In [Azure portal](https://portal.azure.com/):
 - Open the Artifact Signing account and complete **Identity validation**.
+
+     <img width="650" height="811" alt="image" src="https://github.com/user-attachments/assets/e5a6c034-744b-4a9d-9981-36fd5b30d4a2" />
+   
+  https://github.com/user-attachments/assets/15359d56-9d15-4393-8db4-19971cb088a6
+
 - Create the **certificate profile** (use the same name as `certificate_profile_name`).
+
+https://github.com/user-attachments/assets/d42cd730-2f6c-4349-817a-9673b2d999d4
 
 Optional (Terraform-managed certificate profile):
 - Copy the **Identity validation Id** (GUID) from the portal.
 - Paste it into `identity_validation_id` in `terraform-infrastructure/terraform.tfvars`.
 - Run `terraform apply` again.
 
-Push/merge to `main` (or run the workflow via `workflow_dispatch`). The GitHub Actions workflow will build + sign the binaries.
+> [!TIP]
+> Goal: You can now, push/merge to `main` (or run the workflow via `workflow_dispatch`). The [GitHub Actions workflow](.github/workflows/artifact-signing.yml) will build + sign the binaries.
 
 ## Azure Key Vault for workflow variables
 
-Terraform creates a Key Vault by default and wires RBAC so the workflow can read signing inputs.
+> Terraform creates a Key Vault by default and wires RBAC so the workflow can read signing inputs.
 
 | Principal | Role assigned | Why it exists |
 | --- | --- | --- |
@@ -155,7 +160,6 @@ Terraform also populates these Key Vault secrets during `terraform apply`:
 | `artifactSigningCertificateProfileName` | Certificate profile name |
 | `artifactSigningIdentityValidationId` | Optional. Only needed if Terraform or the workflow will create the certificate profile. |
 
-
 If signing fails with 403, validate:
 
 | Check | Expected |
@@ -175,18 +179,14 @@ Workflow file:
 
 ### GitHub OIDC
 
+> In this repo, OIDC + GitHub secrets are configured automatically by the bootstrap step in **Deploy with Terraform**.
+
 Why this exists:
 - GitHub Actions must authenticate to Azure to (1) read signing inputs from Key Vault and (2) call the Artifact Signing service.
 - OIDC lets GitHub obtain an Azure token **without** storing an Azure client secret in GitHub.
 
-In this repo, OIDC + GitHub secrets are configured automatically by the bootstrap step in **Deploy with Terraform**.
-
-Manual (service requirement): complete the **Identity validation** step in the Azure Portal when prompted.
-
-## Azure Portal link
-
-After `terraform apply`, open the resource group:
-https://portal.azure.com/#view/HubsExtension/BrowseResourceGroups
+> [!NOTE]
+> Manual (service requirement): Complete the **Identity validation** step in the Azure Portal when prompted.
 
 <!-- START BADGE -->
 <div align="center">
