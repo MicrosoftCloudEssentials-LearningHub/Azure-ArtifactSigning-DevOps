@@ -16,6 +16,10 @@ keyvault_enabled = true
 # Optional override (must be globally unique):
 # keyvault_name = "kvREPLACE_ME"
 
+# If you want full portal access (Secrets/Keys/Certificates) without needing separate RBAC roles,
+# grant the identity running `terraform apply` the Key Vault Administrator role.
+keyvault_grant_administrator_to_current = true
+
 # Azure DevOps Workload Identity Federation (optional)
 ado_enabled         = false
 ado_org_service_url = "https://dev.azure.com/REPLACE_ME"

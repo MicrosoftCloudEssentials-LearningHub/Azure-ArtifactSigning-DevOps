@@ -35,8 +35,8 @@ output "ado_app_client_id" {
 }
 
 output "ado_sp_object_id" {
-  value       = var.ado_enabled && var.ado_create_app ? azuread_service_principal.ado_sp[0].object_id : null
-  description = "Object ID for the service principal. Useful for troubleshooting RBAC."
+  value       = var.ado_enabled ? local.ado_sp_object_id_effective : null
+  description = "Object ID for the Azure DevOps service principal used by the service connection (useful for troubleshooting RBAC)."
 }
 
 output "ado_project_id" {
