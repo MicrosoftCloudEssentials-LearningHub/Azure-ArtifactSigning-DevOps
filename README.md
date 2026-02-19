@@ -1,9 +1,41 @@
 # Azure Artifact Signing (Azure DevOps + Terraform)
 
-This repo is a minimal, demo-friendly setup for:
-- Provisioning Azure Artifact Signing (Trusted Signing) resources with Terraform.
-- Building a small Windows .NET executable.
-- Signing it in Azure DevOps using **SignTool + Artifact Signing dlib** (private key stays in Microsoft-managed HSMs).
+Costa Rica
+
+[![GitHub](https://img.shields.io/badge/--181717?logo=github&logoColor=ffffff)](https://github.com/)
+[brown9804](https://github.com/brown9804)
+
+Last updated: 2026-02-19
+
+----------
+
+`In Azure DevOps, code signing is an automated pipeline step that runs after build, using a cloud‑hosted certificate where the private key never leaves Azure`
+
+
+<details>
+<summary><b>List of References </b> (Click to expand)</summary>
+
+- [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifact-signing/overview)
+- [Artifact Signing](https://azure.microsoft.com/en-us/products/artifact-signing?msockid=38ec3806873362243e122ce086486339)
+
+</details>
+
+> This repo is a minimal, demo-friendly setup for:
+> - Provisioning Azure Artifact Signing (Trusted Signing) resources with Terraform.
+> - Building a small Windows .NET executable.
+> - Signing it in Azure DevOps using **SignTool + Artifact Signing dlib** (private key stays in Microsoft-managed HSMs).
+
+   <img width="1523" height="743" alt="image" src="https://github.com/user-attachments/assets/5617dfde-d84b-4dd9-904f-7669b4de9374" />
+
+## Prereqs
+
+- Azure CLI installed and logged in (`az login`)
+- Terraform installed
+- Permission to register resource providers + create resources in your subscription. One-time provider registration (per subscription):
+
+   ```pwsh
+   az provider register --namespace Microsoft.CodeSigning
+   ```
 
 ## What Terraform creates
 
@@ -19,21 +51,13 @@ This repo is a minimal, demo-friendly setup for:
    - Pipeline authorizations for the service connection + variable group
 - (Optional, Terraform-deployed) RBAC assignment: `Artifact Signing Certificate Profile Signer` at the certificate profile scope
 
-Notes:
-- **Identity validation** itself is **portal-only** (service requirement). Terraform can’t complete that workflow; you paste the resulting `identity_validation_id` into `terraform.tfvars`.
-- If Terraform creates the Azure DevOps service connection (`ado_enabled = true`), it can also read the generated WIF **Issuer** and **Subject** and create the Entra **federated credential** automatically (no copy/paste).
+<img width="451" height="622" alt="image" src="https://github.com/user-attachments/assets/1306d110-be8f-49a8-96dc-c0354a2a6404" />
 
-## Prereqs
+From [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifact-signing/overview)
 
-- Azure CLI installed and logged in (`az login`)
-- Terraform installed
-- Permission to register resource providers + create resources in your subscription
-
-One-time provider registration (per subscription):
-
-```pwsh
-az provider register --namespace Microsoft.CodeSigning
-```
+> [!NOTE]
+> - **Identity validation** itself is **portal-only** (service requirement). Terraform can’t complete that workflow; you paste the resulting `identity_validation_id` into `terraform.tfvars`.
+> - If Terraform creates the Azure DevOps service connection (`ado_enabled = true`), it can also read the generated WIF **Issuer** and **Subject** and create the Entra **federated credential** automatically (no copy/paste).
 
 ## Deploy with Terraform
 
@@ -128,3 +152,10 @@ If signing fails with 403, validate:
 
 After `terraform apply`, open the resource group:
 https://portal.azure.com/#view/HubsExtension/BrowseResourceGroups
+
+<!-- START BADGE -->
+<div align="center">
+  <img src="https://img.shields.io/badge/Total%20views-1280-limegreen" alt="Total views">
+  <p>Refresh Date: 2026-02-19</p>
+</div>
+<!-- END BADGE -->
