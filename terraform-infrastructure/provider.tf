@@ -40,5 +40,9 @@ provider "azuread" {}
 provider "azuredevops" {
   # Provider blocks can't be conditional. Use a syntactically-valid placeholder URL when
   # Azure DevOps resources are disabled so non-ADO applies still work.
-  org_service_url = var.ado_enabled ? var.ado_org_service_url : "https://dev.azure.com/unused"
+  # When ado_enabled=true and ado_org_service_url is null/empty, the azuredevops provider can
+  # read AZDO_ORG_SERVICE_URL from the environment.
+  org_service_url = var.ado_enabled ? (
+    length(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)) > 0 ? trimspace(var.ado_org_service_url) : null
+  ) : "https://dev.azure.com/unused"
 }

@@ -96,12 +96,15 @@ variable "ado_org_service_url" {
   validation {
     condition = (
       var.ado_enabled == false || (
-        length(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)) > 0 &&
-        can(regex("^https://dev\\.azure\\.com/[^\\s/]+$", trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url))) &&
-        !strcontains(upper(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)), "REPLACE_ME")
+        # Either provide ado_org_service_url explicitly, OR leave it null/empty and let
+        # the azuredevops provider read AZDO_ORG_SERVICE_URL from the environment.
+        length(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)) == 0 || (
+          can(regex("^https://dev\\.azure\\.com/[^\\s/]+$", trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url))) &&
+          !strcontains(upper(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)), "REPLACE_ME")
+        )
       )
     )
-    error_message = "When ado_enabled=true you must set ado_org_service_url to a real org URL like https://dev.azure.com/your-org (not REPLACE_ME)."
+    error_message = "When ado_enabled=true set ado_org_service_url to a real org URL like https://dev.azure.com/your-org (not REPLACE_ME), or leave it null/empty and set env var AZDO_ORG_SERVICE_URL."
   }
 }
 
@@ -232,16 +235,58 @@ variable "assign_signer_role_to_ado_sp" {
   default     = true
 }
 
+variable "assign_signer_role_to_ado_sp_at_account_scope" {
+  type        = bool
+  description = "If true, assigns 'Artifact Signing Certificate Profile Signer' to the Azure DevOps service principal at the Code Signing ACCOUNT scope. This is broader than profile-scope; prefer false for least privilege."
+  default     = false
+}
+
+variable "assign_identity_verifier_role_to_current" {
+  type        = bool
+  description = "If true, assigns 'Artifact Signing Identity Verifier' on the Artifact Signing account to the identity running terraform apply. Required to complete identity validation in the Azure portal."
+  default     = true
+}
+
 variable "assign_contributor_role_to_ado_sp" {
   type        = bool
   description = "If true, assigns Contributor at the resource group scope to the Azure DevOps service principal. Required if you want the pipeline to create the certificate profile (so you don't need a second terraform apply)."
-  default     = true
+  default     = false
+}
+
+variable "pipeline_attempt_rbac_assignment" {
+  type        = bool
+  description = "If true, Terraform passes the ADO service principal object id to the pipeline so it can attempt az role assignment create. Prefer false for least privilege (do RBAC in Terraform instead)."
+  default     = false
 }
 
 variable "keyvault_enabled" {
   type        = bool
   description = "If true, Terraform will create an Azure Key Vault (RBAC-enabled) for storing pipeline secrets/variables."
   default     = true
+}
+
+variable "keyvault_populate_secrets" {
+  type        = bool
+  description = "If true, Terraform writes the artifactSigning* secrets into Key Vault during apply (requires data-plane RBAC on the vault). Set false for least privilege if you prefer managing secrets outside Terraform."
+  default     = true
+}
+
+variable "keyvault_grant_keys_access_to_current" {
+  type        = bool
+  description = "If true, grants the identity running terraform apply permission to view/use Key Vault Keys via RBAC (assigns 'Key Vault Crypto User'). Default false (least privilege)."
+  default     = false
+}
+
+variable "keyvault_grant_certificates_access_to_current" {
+  type        = bool
+  description = "If true, grants the identity running terraform apply permission to view/use Key Vault Certificates via RBAC (assigns 'Key Vault Certificates User'). Default false (least privilege)."
+  default     = false
+}
+
+variable "keyvault_grant_administrator_to_current" {
+  type        = bool
+  description = "If true, grants the identity running terraform apply full Key Vault administration rights via RBAC (assigns 'Key Vault Administrator'). Broad; prefer the narrower key/cert toggles when possible. Default false."
+  default     = false
 }
 
 variable "keyvault_name" {

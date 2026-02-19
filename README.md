@@ -75,7 +75,11 @@ terraform validate
 terraform apply -auto-approve
 ```
 
-3) In Azure portal, open the Artifact Signing account and complete **Identity validation** (portal-only).
+3) Artifact Signing **identity verification / identity validation** (portal-only):
+
+- In Azure portal, open the Artifact Signing account and complete **Identity validation**.
+- This is required by the service and cannot be automated by Terraform.
+- If the portal says you need **Artifact Signing Identity Verifier**, re-run Terraform (it assigns this role to the identity running `terraform apply` by default) and wait a few minutes for RBAC to propagate.
 
 4) Copy the **Identity validation Id** from the portal and set it in Key Vault:
 
@@ -112,14 +116,18 @@ terraform apply -auto-approve -var-file=terraform.tfvars -var-file=terraform.ado
 
 Alternative: set `ado_enabled = true` and `ado_org_service_url` in `terraform.tfvars`.
 
+> If you prefer variables over env vars, you can also set `$env:TF_VAR_ado_org_service_url = "https://dev.azure.com/<your-org>"`.
+
 4) Terraform will:
 - create the Azure DevOps project + repo + YAML pipeline
 - create the AzureRM service connection using Workload Identity Federation (WIF)
 - read the generated WIF Issuer/Subject and create the Entra federated credential
 
 Notes:
+- Artifact Signing identity validation remains **portal-only** even when Azure DevOps is Terraform-managed. Treat it as part of the "Deploy with Terraform" flow above (once completed, store the Id in Key Vault and the pipeline can create the certificate profile automatically).
 - The `WorkloadIdentityFederation` auth scheme requires your org feature to be enabled. If your org can’t use it yet, set `ado_service_endpoint_authentication_scheme = "ServicePrincipal"` and also set `TF_VAR_ado_service_principal_client_secret` for the service principal secret.
 - Terraform creates an empty repo. You still need to push this repo’s code into the Azure DevOps repo (Terraform will output the clone URL).
+- Least privilege: by default this repo does **not** grant RG `Contributor` to the Azure DevOps service principal. If you want the pipeline to auto-create the certificate profile, set `assign_contributor_role_to_ado_sp = true`.
 
 ## Pipeline
 
@@ -144,8 +152,19 @@ Optional (only used when creating the certificate profile):
 ### Azure Key Vault for pipeline variables
 
 Terraform creates a Key Vault by default and wires RBAC so:
-- your current identity can set secrets
-- the Azure DevOps service principal can read secrets
+- your current identity (the identity running `terraform apply`) can set secrets (`Key Vault Secrets Officer`)
+- the Azure DevOps service principal can read secrets (`Key Vault Secrets User`)
+
+> This Key Vault is **RBAC-enabled** (`rbac_authorization_enabled = true`). You will see access under **Key Vault → Access control (IAM)** (not under “Access policies”).
+
+Least privilege options:
+- Set `keyvault_populate_secrets = false` if you do not want Terraform to write secrets into Key Vault (you can manage secrets yourself and/or set pipeline variables another way).
+- The pipeline does not attempt to self-assign RBAC by default (it only does if `pipeline_attempt_rbac_assignment = true`).
+- If you want to view **Keys** and/or **Certificates** in the Azure portal, opt in to RBAC for your current identity:
+  - `keyvault_grant_keys_access_to_current = true` (assigns `Key Vault Crypto User`)
+  - `keyvault_grant_certificates_access_to_current = true` (assigns `Key Vault Certificates User`)
+  - Or, if you want the simplest “make the portal work” option (broad permissions):
+    - `keyvault_grant_administrator_to_current = true` (assigns `Key Vault Administrator`)
 
 Terraform also populates these Key Vault secrets during `terraform apply`:
 - `artifactSigningEndpoint`

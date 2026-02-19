@@ -33,12 +33,23 @@ locals {
     length(trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject)) > 0
   ) ? trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject) : try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_subject, null)
 
+  # Object id for the ADO service principal, regardless of whether Terraform created it
+  # or you provided an existing client id.
+  ado_sp_object_id_effective = var.ado_enabled ? (
+    var.ado_create_app ? try(azuread_service_principal.ado_sp[0].object_id, null) : try(data.azuread_service_principal.ado_sp_existing[0].object_id, null)
+  ) : null
+
   keyvault_name_input = var.keyvault_name != null ? trimspace(var.keyvault_name) : ""
 }
 
 data "azurerm_client_config" "current" {}
 
 data "azurerm_subscription" "current" {}
+
+data "azuread_service_principal" "ado_sp_existing" {
+  count     = var.ado_enabled && !var.ado_create_app ? 1 : 0
+  client_id = local.ado_sp_client_id
+}
 
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
@@ -60,6 +71,14 @@ resource "azapi_resource" "code_signing_account" {
       }
     }
   }
+}
+
+resource "azurerm_role_assignment" "current_identity_verifier" {
+  count = var.assign_identity_verifier_role_to_current ? 1 : 0
+
+  scope                = azapi_resource.code_signing_account.id
+  role_definition_name = "Artifact Signing Identity Verifier"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
 
 resource "azapi_resource" "certificate_profile" {
@@ -101,27 +120,27 @@ resource "azuread_application_federated_identity_credential" "ado_fic" {
 }
 
 resource "azurerm_role_assignment" "ado_account_signer" {
-  count = var.assign_signer_role_to_ado_sp && var.ado_enabled && var.ado_create_app ? 1 : 0
+  count = var.assign_signer_role_to_ado_sp_at_account_scope && var.ado_enabled ? 1 : 0
 
   scope                = azapi_resource.code_signing_account.id
   role_definition_name = "Artifact Signing Certificate Profile Signer"
-  principal_id         = azuread_service_principal.ado_sp[0].object_id
+  principal_id         = local.ado_sp_object_id_effective
 }
 
 resource "azurerm_role_assignment" "ado_profile_signer" {
-  count = var.assign_signer_role_to_ado_sp && var.ado_enabled && var.ado_create_app && length(azapi_resource.certificate_profile) > 0 ? 1 : 0
+  count = var.assign_signer_role_to_ado_sp && var.ado_enabled && length(azapi_resource.certificate_profile) > 0 ? 1 : 0
 
   scope                = azapi_resource.certificate_profile[0].id
   role_definition_name = "Artifact Signing Certificate Profile Signer"
-  principal_id         = azuread_service_principal.ado_sp[0].object_id
+  principal_id         = local.ado_sp_object_id_effective
 }
 
 resource "azurerm_role_assignment" "ado_rg_contributor" {
-  count = var.assign_contributor_role_to_ado_sp && var.ado_enabled && var.ado_create_app ? 1 : 0
+  count = var.assign_contributor_role_to_ado_sp && var.ado_enabled ? 1 : 0
 
   scope                = azurerm_resource_group.rg.id
   role_definition_name = "Contributor"
-  principal_id         = azuread_service_principal.ado_sp[0].object_id
+  principal_id         = local.ado_sp_object_id_effective
 }
 
 resource "random_string" "kv_suffix" {
@@ -155,17 +174,38 @@ resource "azurerm_key_vault" "kv" {
 }
 
 resource "azurerm_role_assignment" "kv_secrets_officer_current" {
-  count                = var.keyvault_enabled ? 1 : 0
+  count                = var.keyvault_enabled && var.keyvault_populate_secrets ? 1 : 0
   scope                = azurerm_key_vault.kv[0].id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
+resource "azurerm_role_assignment" "kv_crypto_user_current" {
+  count                = var.keyvault_enabled && var.keyvault_grant_keys_access_to_current ? 1 : 0
+  scope                = azurerm_key_vault.kv[0].id
+  role_definition_name = "Key Vault Crypto User"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "kv_certificates_user_current" {
+  count                = var.keyvault_enabled && var.keyvault_grant_certificates_access_to_current ? 1 : 0
+  scope                = azurerm_key_vault.kv[0].id
+  role_definition_name = "Key Vault Certificates User"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "kv_administrator_current" {
+  count                = var.keyvault_enabled && var.keyvault_grant_administrator_to_current ? 1 : 0
+  scope                = azurerm_key_vault.kv[0].id
+  role_definition_name = "Key Vault Administrator"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 resource "azurerm_role_assignment" "kv_secrets_user_ado" {
-  count                = var.keyvault_enabled && var.ado_enabled && var.ado_create_app ? 1 : 0
+  count                = var.keyvault_enabled && var.ado_enabled ? 1 : 0
   scope                = azurerm_key_vault.kv[0].id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = azuread_service_principal.ado_sp[0].object_id
+  principal_id         = local.ado_sp_object_id_effective
 }
 
 resource "time_sleep" "kv_rbac_propagation" {
@@ -179,7 +219,7 @@ resource "time_sleep" "kv_rbac_propagation" {
 }
 
 resource "azurerm_key_vault_secret" "artifact_signing_endpoint" {
-  count        = var.keyvault_enabled ? 1 : 0
+  count        = var.keyvault_enabled && var.keyvault_populate_secrets ? 1 : 0
   key_vault_id = azurerm_key_vault.kv[0].id
   name         = "artifactSigningEndpoint"
   value        = local.artifact_signing_endpoint != null ? local.artifact_signing_endpoint : " "
@@ -191,7 +231,7 @@ resource "azurerm_key_vault_secret" "artifact_signing_endpoint" {
 }
 
 resource "azurerm_key_vault_secret" "artifact_signing_account_name" {
-  count        = var.keyvault_enabled ? 1 : 0
+  count        = var.keyvault_enabled && var.keyvault_populate_secrets ? 1 : 0
   key_vault_id = azurerm_key_vault.kv[0].id
   name         = "artifactSigningAccountName"
   value        = azapi_resource.code_signing_account.name
@@ -203,7 +243,7 @@ resource "azurerm_key_vault_secret" "artifact_signing_account_name" {
 }
 
 resource "azurerm_key_vault_secret" "artifact_signing_certificate_profile_name" {
-  count        = var.keyvault_enabled ? 1 : 0
+  count        = var.keyvault_enabled && var.keyvault_populate_secrets ? 1 : 0
   key_vault_id = azurerm_key_vault.kv[0].id
   name         = "artifactSigningCertificateProfileName"
   value        = var.certificate_profile_name
@@ -215,7 +255,7 @@ resource "azurerm_key_vault_secret" "artifact_signing_certificate_profile_name" 
 }
 
 resource "azurerm_key_vault_secret" "artifact_signing_identity_validation_id" {
-  count        = var.keyvault_enabled ? 1 : 0
+  count        = var.keyvault_enabled && var.keyvault_populate_secrets ? 1 : 0
   key_vault_id = azurerm_key_vault.kv[0].id
   name         = "artifactSigningIdentityValidationId"
   value        = local.identity_validation_id_trimmed != "" ? local.identity_validation_id_trimmed : " "
@@ -324,7 +364,7 @@ resource "azuredevops_variable_group" "signing" {
 
   variable {
     name  = "adoServicePrincipalObjectId"
-    value = var.ado_create_app ? azuread_service_principal.ado_sp[0].object_id : ""
+    value = var.pipeline_attempt_rbac_assignment && local.ado_sp_object_id_effective != null ? local.ado_sp_object_id_effective : ""
   }
 }
 
