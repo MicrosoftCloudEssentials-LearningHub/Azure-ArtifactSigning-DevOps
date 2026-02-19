@@ -13,6 +13,15 @@ variable "resource_group_name" {
 variable "code_signing_account_name" {
   type        = string
   description = "Artifact Signing (Trusted Signing) account name. Must be globally unique, 3-24 characters."
+
+  validation {
+    condition = (
+      length(var.code_signing_account_name) >= 3 &&
+      length(var.code_signing_account_name) <= 24 &&
+      can(regex("^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$", var.code_signing_account_name))
+    )
+    error_message = "code_signing_account_name must be 3-24 chars, start with a letter, contain only letters/numbers/hyphens, and not contain underscores. Example: aasdemo-abc123."
+  }
 }
 
 variable "code_signing_sku" {
@@ -85,8 +94,14 @@ variable "ado_org_service_url" {
   nullable    = true
 
   validation {
-    condition     = var.ado_enabled == false || (var.ado_org_service_url != null && length(trimspace(var.ado_org_service_url)) > 0)
-    error_message = "When ado_enabled=true you must set ado_org_service_url (or AZDO_ORG_SERVICE_URL)."
+    condition = (
+      var.ado_enabled == false || (
+        length(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)) > 0 &&
+        can(regex("^https://dev\\.azure\\.com/[^\\s/]+$", trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url))) &&
+        !strcontains(upper(trimspace(var.ado_org_service_url == null ? "" : var.ado_org_service_url)), "REPLACE_ME")
+      )
+    )
+    error_message = "When ado_enabled=true you must set ado_org_service_url to a real org URL like https://dev.azure.com/your-org (not REPLACE_ME)."
   }
 }
 

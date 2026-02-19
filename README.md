@@ -101,14 +101,18 @@ $env:AZDO_ORG_SERVICE_URL = "https://dev.azure.com/<your-org>"
 $env:AZDO_PERSONAL_ACCESS_TOKEN = "<your-pat>"
 ```
 
-3) In `terraform-infrastructure/terraform.tfvars`, set:
+3) Enable the Azure DevOps resources in Terraform.
 
-```hcl
-ado_enabled = true
-ado_org_service_url = "https://dev.azure.com/<your-org>"
+Preferred: use the provided var-file:
+
+```pwsh
+cd terraform-infrastructure
+terraform apply -auto-approve -var-file=terraform.tfvars -var-file=terraform.ado.tfvars
 ```
 
-4) Apply. Terraform will:
+Alternative: set `ado_enabled = true` and `ado_org_service_url` in `terraform.tfvars`.
+
+4) Terraform will:
 - create the Azure DevOps project + repo + YAML pipeline
 - create the AzureRM service connection using Workload Identity Federation (WIF)
 - read the generated WIF Issuer/Subject and create the Entra federated credential

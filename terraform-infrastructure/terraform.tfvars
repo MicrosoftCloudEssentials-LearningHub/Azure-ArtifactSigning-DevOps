@@ -3,7 +3,7 @@
 
 location                  = "eastus"
 resource_group_name       = "RG-artifact-signing-demo"
-code_signing_account_name = "aasdemoREPLACE_ME"
+code_signing_account_name = "aasdemo-replace-me"
 
 # After you complete Identity validation in the Azure portal, paste the Identity validation Id here.
 identity_validation_id = null
