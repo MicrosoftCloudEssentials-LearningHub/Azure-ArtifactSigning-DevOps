@@ -9,8 +9,10 @@ Last updated: 2026-02-19
 
 ----------
 
-`In Azure DevOps, code signing is an automated pipeline step that runs after build, using a cloud‑hosted certificate where the private key never leaves Azure`
+`In Azure DevOps, code signing is an automated pipeline step that runs after build, using a cloud‑hosted certificate where the private key never leaves Azure`. The pipeline then uses SignTool + the Artifact Signing dlib to call the service endpoint associated with those resources.
 
+> - “Trusted Signing” = service branding/experience
+> - “Microsoft.CodeSigning/*” = the deployable Azure resources you manage with Terraform/ARM.
 
 <details>
 <summary><b>List of References </b> (Click to expand)</summary>
