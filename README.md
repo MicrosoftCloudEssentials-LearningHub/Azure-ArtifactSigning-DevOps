@@ -43,20 +43,13 @@ Last updated: 2026-02-19
 
 - Resource group
 - Artifact Signing account (`Microsoft.CodeSigning/codeSigningAccounts`)
-- Key Vault (RBAC-enabled) for pipeline variables/secrets
-- (Optional) Certificate profile (`.../certificateProfiles`) can be created either:
-   - by Terraform (if you set `identity_validation_id` and re-apply), or
-   - by the Azure DevOps pipeline automatically (after you set a Key Vault secret; no Terraform re-run)
-- (Optional, Terraform-deployed) Microsoft Entra app registration + service principal for an Azure DevOps **Workload Identity Federation** service connection
-- (Optional, Terraform-deployed) Azure DevOps resources (when `ado_enabled = true`):
-   - Project
-   - Git repo
-   - YAML pipeline
-   - AzureRM service connection (Workload Identity Federation)
-   - Pipeline authorizations for the service connection + variable group
-- (Optional) RBAC assignment(s) for the Azure DevOps service principal
-   - `Artifact Signing Certificate Profile Signer` at the certificate profile scope (required for signing)
-   - `Contributor` at the resource group scope (only required if you want the pipeline to create the certificate profile)
+- Key Vault (RBAC-enabled) for pipeline variables/secrets (created by default)
+- Certificate profile (`.../certificateProfiles`)
+  - Preferred: created by the Azure DevOps pipeline after you set the Key Vault secret `artifactSigningIdentityValidationId` (no second `terraform apply`)
+  - Optional: created by Terraform if you set `identity_validation_id` and re-apply
+- Optional Azure DevOps resources (when `ado_enabled = true`)
+  - Entra app registration + service principal
+  - Azure DevOps project/repo/pipeline/service connection + authorizations
 
 <img width="451" height="622" alt="image" src="https://github.com/user-attachments/assets/1306d110-be8f-49a8-96dc-c0354a2a6404" />
 
@@ -64,8 +57,8 @@ From [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifac
 
 > [!NOTE]
 > - **Identity validation** itself is **portal-only** (service requirement). Terraform can’t complete that workflow.
-> - After you complete it, you can avoid a second `terraform apply` by setting the Key Vault secret `artifactSigningIdentityValidationId` and letting the pipeline create the certificate profile.
-> - If Terraform creates the Azure DevOps service connection (`ado_enabled = true`), it can also read the generated WIF **Issuer** and **Subject** and create the Entra **federated credential** automatically (no copy/paste).
+> - After you complete it, set Key Vault secret `artifactSigningIdentityValidationId` and the pipeline will create the certificate profile automatically.
+> - If Terraform creates the Azure DevOps service connection (`ado_enabled = true`), it can read the generated WIF **Issuer/Subject** and create the Entra federated credential automatically.
 
 ## Deploy with Terraform
 
@@ -84,18 +77,14 @@ terraform apply -auto-approve
 
 3) In Azure portal, open the Artifact Signing account and complete **Identity validation** (portal-only).
 
-4) Copy the **Identity validation Id** from the portal and set it in Key Vault (no Terraform re-run required):
+4) Copy the **Identity validation Id** from the portal and set it in Key Vault:
 
 ```pwsh
-az keyvault secret set \
-   --vault-name <your-keyvault-name> \
-   --name artifactSigningIdentityValidationId \
-   --value "00000000-0000-0000-0000-000000000000"
+$kvName = terraform -chdir=terraform-infrastructure output -raw keyvault_name
+az keyvault secret set --vault-name $kvName --name artifactSigningIdentityValidationId --value "00000000-0000-0000-0000-000000000000"
 ```
 
-5) Run the Azure DevOps pipeline. The `AzureCLI@2` step will:
-- create the certificate profile if it doesn't exist yet
-- ensure the `Artifact Signing Certificate Profile Signer` role assignment exists
+5) Run the Azure DevOps pipeline. The `AzureCLI@2` step will create the certificate profile if it doesn’t exist yet, then sign the binaries.
 
 Optional: If you prefer Terraform to manage the certificate profile instead, set `identity_validation_id` in `terraform-infrastructure/terraform.tfvars` and run `terraform apply` again.
 
@@ -131,22 +120,28 @@ Notes:
 ## Pipeline
 
 - [azure-pipelines.yml](azure-pipelines.yml) builds `SigningDemo.exe`, installs the required signing components via NuGet extraction, then signs using the official SignTool + `/dlib` flow.
-- Configure pipeline variables:
-  - `artifactSigningEndpoint` (Terraform output `artifact_signing_endpoint`)
-  - `artifactSigningAccountName` (Terraform output `artifact_signing_account_name`)
-  - `artifactSigningCertificateProfileName` (your profile name)
-   - `artifactSigningResourceGroupName` (Terraform `resource_group_name`)
-   - `artifactSigningIdentityValidationId` (only required until the profile exists; best sourced from Key Vault)
-   - `artifactSigningCertificateProfileType` (defaults to `PublicTrust` if unset)
-   - `adoServicePrincipalObjectId` (optional; enables the pipeline to ensure RBAC assignment automatically)
-  - Service connection name in YAML: update `azureSubscription` if you didn't name it `sc-artifact-signing`.
+- If `keyVaultName` is set, the pipeline loads signing values from Key Vault via `AzureKeyVault@2`.
+
+Minimum pipeline variables (when not using the Terraform-managed variable group):
+- `azureServiceConnection` (service connection name; default `sc-artifact-signing`)
+- `keyVaultName` (Terraform output `keyvault_name`)
+- `artifactSigningResourceGroupName` (Terraform `resource_group_name`)
+
+Optional overrides (normally provided by Key Vault):
+- `artifactSigningEndpoint`
+- `artifactSigningAccountName`
+- `artifactSigningCertificateProfileName`
+- `artifactSigningIdentityValidationId` (only required until the profile exists)
+
+Optional (only used when creating the certificate profile):
+- `artifactSigningCertificateProfileType` (defaults to `PublicTrust` if unset)
+- `adoServicePrincipalObjectId`
 
 ### Azure Key Vault for pipeline variables
 
-Terraform creates a Key Vault by default. It will:
-- create an RBAC-enabled Key Vault
-- grant your current identity **Key Vault Secrets Officer** (so you can set secrets)
-- grant the Azure DevOps service principal **Key Vault Secrets User** (so the pipeline can read secrets)
+Terraform creates a Key Vault by default and wires RBAC so:
+- your current identity can set secrets
+- the Azure DevOps service principal can read secrets
 
 Terraform also populates these Key Vault secrets during `terraform apply`:
 - `artifactSigningEndpoint`
