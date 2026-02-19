@@ -24,6 +24,8 @@ Last updated: 2026-02-19
 - [Set up signing integrations to use Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations)
 - [Microsoft Included CA Certificate List](https://ccadb.my.salesforce-sites.com/microsoft/IncludedCACertificateReportForMSFT)
 - [Artifact Signing trust models](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/artifact-signing/concept-trust-models.md)
+- [Artifact Signing resources and roles](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-resources-roles)
+- [Artifact Signing - The Artifact Signing Action allows you to digitally sign your files using a Artifact Signing certificate during a GitHub Actions run](https://github.com/azure/artifact-signing-action) - repo
 
 </details>
 
