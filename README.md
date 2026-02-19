@@ -38,6 +38,8 @@ Last updated: 2026-02-19
    ```pwsh
    az provider register --namespace Microsoft.CodeSigning
    ```
+   
+   <img width="772" height="559" alt="arch_Azure-Artifact-Signing_Demo drawio" src="https://github.com/user-attachments/assets/6a8a9f88-7a2b-4f26-8564-7cf39c5f47ff" />
 
 ## What Terraform creates
 
