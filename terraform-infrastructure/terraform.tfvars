@@ -11,9 +11,10 @@ identity_validation_id = null
 certificate_profile_name = "demo-code-signing"
 certificate_profile_type = "PublicTrustTest"
 
-# Optional: Key Vault for pipeline variables/secrets
-# keyvault_enabled = true
-# keyvault_name    = "kvREPLACE_ME"  # must be globally unique
+# Key Vault for pipeline variables/secrets (enabled by default)
+keyvault_enabled = true
+# Optional override (must be globally unique):
+# keyvault_name = "kvREPLACE_ME"
 
 # Azure DevOps Workload Identity Federation (optional)
 ado_enabled         = false

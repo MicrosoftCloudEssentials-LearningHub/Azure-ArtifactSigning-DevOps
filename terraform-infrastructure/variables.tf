@@ -162,7 +162,7 @@ variable "ado_service_principal_client_id" {
     condition = (
       var.ado_enabled == false ||
       var.ado_create_app == true ||
-      (var.ado_service_principal_client_id != null && length(trimspace(var.ado_service_principal_client_id)) > 0)
+      length(trimspace(var.ado_service_principal_client_id == null ? "" : var.ado_service_principal_client_id)) > 0
     )
     error_message = "When ado_enabled=true and ado_create_app=false, you must set ado_service_principal_client_id."
   }
@@ -179,7 +179,7 @@ variable "ado_service_principal_client_secret" {
     condition = (
       var.ado_enabled == false ||
       var.ado_service_endpoint_authentication_scheme != "ServicePrincipal" ||
-      (var.ado_service_principal_client_secret != null && length(trimspace(var.ado_service_principal_client_secret)) > 0)
+      length(trimspace(var.ado_service_principal_client_secret == null ? "" : var.ado_service_principal_client_secret)) > 0
     )
     error_message = "When ado_enabled=true and ado_service_endpoint_authentication_scheme=ServicePrincipal, you must set ado_service_principal_client_secret (prefer TF_VAR_ado_service_principal_client_secret)."
   }
@@ -217,21 +217,31 @@ variable "assign_signer_role_to_ado_sp" {
   default     = true
 }
 
+variable "assign_contributor_role_to_ado_sp" {
+  type        = bool
+  description = "If true, assigns Contributor at the resource group scope to the Azure DevOps service principal. Required if you want the pipeline to create the certificate profile (so you don't need a second terraform apply)."
+  default     = true
+}
+
 variable "keyvault_enabled" {
   type        = bool
   description = "If true, Terraform will create an Azure Key Vault (RBAC-enabled) for storing pipeline secrets/variables."
-  default     = false
+  default     = true
 }
 
 variable "keyvault_name" {
   type        = string
-  description = "Key Vault name (globally unique, 3-24 chars, alphanumeric). Required when keyvault_enabled=true."
+  description = "Optional Key Vault name override (globally unique, 3-24 chars, alphanumeric). If null/empty and keyvault_enabled=true, Terraform generates a name."
   default     = null
   nullable    = true
 
   validation {
-    condition     = var.keyvault_enabled == false || (var.keyvault_name != null && length(trimspace(var.keyvault_name)) > 0)
-    error_message = "When keyvault_enabled=true you must set keyvault_name."
+    condition = (
+      var.keyvault_name == null ||
+      length(trimspace(var.keyvault_name == null ? "" : var.keyvault_name)) == 0 ||
+      can(regex("^[a-zA-Z][0-9a-zA-Z]{2,23}$", trimspace(var.keyvault_name == null ? "" : var.keyvault_name)))
+    )
+    error_message = "keyvault_name must be 3-24 characters, alphanumeric, and start with a letter."
   }
 }
 

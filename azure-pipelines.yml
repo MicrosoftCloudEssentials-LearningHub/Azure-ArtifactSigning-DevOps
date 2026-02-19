@@ -18,6 +18,10 @@ variables:
   artifactSigningEndpoint: ''
   artifactSigningAccountName: ''
   artifactSigningCertificateProfileName: ''
+  artifactSigningIdentityValidationId: ''
+  artifactSigningResourceGroupName: ''
+  artifactSigningCertificateProfileType: 'PublicTrust'
+  adoServicePrincipalObjectId: ''
 
 steps:
 - task: DotNetCoreCLI@2
@@ -33,7 +37,7 @@ steps:
   inputs:
     azureSubscription: '$(azureServiceConnection)'
     KeyVaultName: '$(keyVaultName)'
-    SecretsFilter: 'artifactSigningEndpoint,artifactSigningAccountName,artifactSigningCertificateProfileName'
+    SecretsFilter: 'artifactSigningEndpoint,artifactSigningAccountName,artifactSigningCertificateProfileName,artifactSigningIdentityValidationId'
     RunAsPreJob: false
 
 - task: AzureCLI@2
@@ -45,9 +49,69 @@ steps:
     inlineScript: |
       $ErrorActionPreference = 'Stop'
 
+      function Get-Trimmed([string]$value) {
+        if ($null -eq $value) { return '' }
+        return $value.Trim()
+      }
+
+      $rg = Get-Trimmed "$(artifactSigningResourceGroupName)"
+      if ([string]::IsNullOrWhiteSpace($rg)) { throw "Missing variable: artifactSigningResourceGroupName" }
+
+      $accountName = Get-Trimmed "$(artifactSigningAccountName)"
+      $profileName = Get-Trimmed "$(artifactSigningCertificateProfileName)"
+      $profileType = Get-Trimmed "$(artifactSigningCertificateProfileType)"
+      if ([string]::IsNullOrWhiteSpace($profileType)) { $profileType = 'PublicTrust' }
+
       if ([string]::IsNullOrWhiteSpace("$(artifactSigningEndpoint)")) { throw "Missing variable: artifactSigningEndpoint" }
-      if ([string]::IsNullOrWhiteSpace("$(artifactSigningAccountName)")) { throw "Missing variable: artifactSigningAccountName" }
-      if ([string]::IsNullOrWhiteSpace("$(artifactSigningCertificateProfileName)")) { throw "Missing variable: artifactSigningCertificateProfileName" }
+      if ([string]::IsNullOrWhiteSpace($accountName)) { throw "Missing variable: artifactSigningAccountName" }
+      if ([string]::IsNullOrWhiteSpace($profileName)) { throw "Missing variable: artifactSigningCertificateProfileName" }
+
+      $identityValidationId = Get-Trimmed "$(artifactSigningIdentityValidationId)"
+
+      $subId = (az account show --query id -o tsv)
+      if ([string]::IsNullOrWhiteSpace($subId)) { throw "Unable to determine subscription id from AzureCLI context." }
+
+      $profileResourceId = "/subscriptions/$subId/resourceGroups/$rg/providers/Microsoft.CodeSigning/codeSigningAccounts/$accountName/certificateProfiles/$profileName"
+      $profileUrl = "https://management.azure.com$profileResourceId?api-version=2025-10-13"
+
+      Write-Host "Ensuring certificate profile exists: $profileResourceId"
+
+      $profileExists = $false
+      try {
+        az rest --method get --url $profileUrl --only-show-errors | Out-Null
+        $profileExists = $true
+      } catch {
+        $profileExists = $false
+      }
+
+      if (-not $profileExists) {
+        if ([string]::IsNullOrWhiteSpace($identityValidationId)) {
+          throw "Certificate profile is missing. Complete identity validation in the portal and set Key Vault secret 'artifactSigningIdentityValidationId' (or set pipeline variable artifactSigningIdentityValidationId)."
+        }
+
+        $body = @{
+          properties = @{
+            identityValidationId   = $identityValidationId
+            profileType           = $profileType
+            includeStreetAddress  = $false
+            includePostalCode     = $false
+          }
+        } | ConvertTo-Json -Depth 10
+
+        az rest --method put --url $profileUrl --body $body --only-show-errors | Out-Null
+        Write-Host "Created certificate profile: $profileName"
+      }
+
+      $spObjectId = Get-Trimmed "$(adoServicePrincipalObjectId)"
+      if (-not [string]::IsNullOrWhiteSpace($spObjectId)) {
+        $roleName = "Artifact Signing Certificate Profile Signer"
+        Write-Host "Ensuring RBAC role '$roleName' on profile for SP object id $spObjectId"
+        try {
+          az role assignment create --assignee-object-id $spObjectId --assignee-principal-type ServicePrincipal --role $roleName --scope $profileResourceId --only-show-errors | Out-Null
+        } catch {
+          Write-Host "Role assignment may already exist; continuing."
+        }
+      }
 
       az account show --output table
 

@@ -19,20 +19,21 @@ locals {
 
   artifact_signing_endpoint = try(local.endpoint_by_location[lower(replace(var.location, " ", ""))], null)
 
-  ado_sp_client_id = coalesce(
-    var.ado_service_principal_client_id,
-    try(azuread_application.ado_app[0].client_id, null)
-  )
+  identity_validation_id_trimmed = trimspace(var.identity_validation_id == null ? "" : var.identity_validation_id)
 
-  ado_wif_issuer_effective = coalesce(
-    var.ado_wif_issuer,
-    try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_issuer, null)
-  )
+  ado_sp_client_id = (
+    length(trimspace(var.ado_service_principal_client_id == null ? "" : var.ado_service_principal_client_id)) > 0
+  ) ? trimspace(var.ado_service_principal_client_id == null ? "" : var.ado_service_principal_client_id) : try(azuread_application.ado_app[0].client_id, null)
 
-  ado_wif_subject_effective = coalesce(
-    var.ado_wif_subject,
-    try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_subject, null)
-  )
+  ado_wif_issuer_effective = (
+    length(trimspace(var.ado_wif_issuer == null ? "" : var.ado_wif_issuer)) > 0
+  ) ? trimspace(var.ado_wif_issuer == null ? "" : var.ado_wif_issuer) : try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_issuer, null)
+
+  ado_wif_subject_effective = (
+    length(trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject)) > 0
+  ) ? trimspace(var.ado_wif_subject == null ? "" : var.ado_wif_subject) : try(azuredevops_serviceendpoint_azurerm.azurerm[0].workload_identity_federation_subject, null)
+
+  keyvault_name_input = var.keyvault_name != null ? trimspace(var.keyvault_name) : ""
 }
 
 data "azurerm_client_config" "current" {}
@@ -52,13 +53,13 @@ resource "azapi_resource" "code_signing_account" {
   parent_id = azurerm_resource_group.rg.id
   tags      = var.tags
 
-  body = jsonencode({
+  body = {
     properties = {
       sku = {
         name = var.code_signing_sku
       }
     }
-  })
+  }
 }
 
 resource "azapi_resource" "certificate_profile" {
@@ -67,14 +68,14 @@ resource "azapi_resource" "certificate_profile" {
   name      = var.certificate_profile_name
   parent_id = azapi_resource.code_signing_account.id
 
-  body = jsonencode({
+  body = {
     properties = {
       identityValidationId  = var.identity_validation_id
-      profileType          = var.certificate_profile_type
-      includeStreetAddress = var.certificate_profile_include_street_address
-      includePostalCode    = var.certificate_profile_include_postal_code
+      profileType           = var.certificate_profile_type
+      includeStreetAddress  = var.certificate_profile_include_street_address
+      includePostalCode     = var.certificate_profile_include_postal_code
     }
-  })
+  }
 }
 
 resource "azuread_application" "ado_app" {
@@ -88,13 +89,23 @@ resource "azuread_service_principal" "ado_sp" {
 }
 
 resource "azuread_application_federated_identity_credential" "ado_fic" {
-  count          = var.ado_enabled && var.ado_create_app && local.ado_wif_issuer_effective != null && local.ado_wif_subject_effective != null ? 1 : 0
+  count          = var.ado_enabled && var.ado_create_app && var.ado_service_endpoint_authentication_scheme == "WorkloadIdentityFederation" ? 1 : 0
   application_id = azuread_application.ado_app[0].id
   display_name   = "ado-wif"
   description    = "Azure DevOps workload identity federation"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = local.ado_wif_issuer_effective
   subject        = local.ado_wif_subject_effective
+
+  depends_on = [azuredevops_serviceendpoint_azurerm.azurerm]
+}
+
+resource "azurerm_role_assignment" "ado_account_signer" {
+  count = var.assign_signer_role_to_ado_sp && var.ado_enabled && var.ado_create_app ? 1 : 0
+
+  scope                = azapi_resource.code_signing_account.id
+  role_definition_name = "Artifact Signing Certificate Profile Signer"
+  principal_id         = azuread_service_principal.ado_sp[0].object_id
 }
 
 resource "azurerm_role_assignment" "ado_profile_signer" {
@@ -105,9 +116,30 @@ resource "azurerm_role_assignment" "ado_profile_signer" {
   principal_id         = azuread_service_principal.ado_sp[0].object_id
 }
 
+resource "azurerm_role_assignment" "ado_rg_contributor" {
+  count = var.assign_contributor_role_to_ado_sp && var.ado_enabled && var.ado_create_app ? 1 : 0
+
+  scope                = azurerm_resource_group.rg.id
+  role_definition_name = "Contributor"
+  principal_id         = azuread_service_principal.ado_sp[0].object_id
+}
+
+resource "random_string" "kv_suffix" {
+  count   = var.keyvault_enabled && local.keyvault_name_input == "" ? 1 : 0
+  length  = 20
+  lower   = true
+  upper   = false
+  numeric = true
+  special = false
+}
+
+locals {
+  keyvault_name_effective = var.keyvault_enabled ? (local.keyvault_name_input != "" ? local.keyvault_name_input : "kv${random_string.kv_suffix[0].result}") : null
+}
+
 resource "azurerm_key_vault" "kv" {
   count               = var.keyvault_enabled ? 1 : 0
-  name                = var.keyvault_name
+  name                = local.keyvault_name_effective
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
@@ -143,6 +175,54 @@ resource "time_sleep" "kv_rbac_propagation" {
   depends_on = [
     azurerm_role_assignment.kv_secrets_officer_current,
     azurerm_role_assignment.kv_secrets_user_ado,
+  ]
+}
+
+resource "azurerm_key_vault_secret" "artifact_signing_endpoint" {
+  count        = var.keyvault_enabled ? 1 : 0
+  key_vault_id = azurerm_key_vault.kv[0].id
+  name         = "artifactSigningEndpoint"
+  value        = local.artifact_signing_endpoint != null ? local.artifact_signing_endpoint : " "
+
+  depends_on = [
+    azurerm_role_assignment.kv_secrets_officer_current,
+    time_sleep.kv_rbac_propagation,
+  ]
+}
+
+resource "azurerm_key_vault_secret" "artifact_signing_account_name" {
+  count        = var.keyvault_enabled ? 1 : 0
+  key_vault_id = azurerm_key_vault.kv[0].id
+  name         = "artifactSigningAccountName"
+  value        = azapi_resource.code_signing_account.name
+
+  depends_on = [
+    azurerm_role_assignment.kv_secrets_officer_current,
+    time_sleep.kv_rbac_propagation,
+  ]
+}
+
+resource "azurerm_key_vault_secret" "artifact_signing_certificate_profile_name" {
+  count        = var.keyvault_enabled ? 1 : 0
+  key_vault_id = azurerm_key_vault.kv[0].id
+  name         = "artifactSigningCertificateProfileName"
+  value        = var.certificate_profile_name
+
+  depends_on = [
+    azurerm_role_assignment.kv_secrets_officer_current,
+    time_sleep.kv_rbac_propagation,
+  ]
+}
+
+resource "azurerm_key_vault_secret" "artifact_signing_identity_validation_id" {
+  count        = var.keyvault_enabled ? 1 : 0
+  key_vault_id = azurerm_key_vault.kv[0].id
+  name         = "artifactSigningIdentityValidationId"
+  value        = local.identity_validation_id_trimmed != "" ? local.identity_validation_id_trimmed : " "
+
+  depends_on = [
+    azurerm_role_assignment.kv_secrets_officer_current,
+    time_sleep.kv_rbac_propagation,
   ]
 }
 
@@ -214,12 +294,12 @@ resource "azuredevops_variable_group" "signing" {
 
   variable {
     name  = "keyVaultName"
-    value = var.keyvault_enabled ? azurerm_key_vault.kv[0].name : ""
+    value = var.keyvault_enabled ? local.keyvault_name_effective : ""
   }
 
   variable {
     name  = "artifactSigningEndpoint"
-    value = coalesce(local.artifact_signing_endpoint, "")
+    value = local.artifact_signing_endpoint != null ? local.artifact_signing_endpoint : ""
   }
 
   variable {
@@ -229,7 +309,22 @@ resource "azuredevops_variable_group" "signing" {
 
   variable {
     name  = "artifactSigningCertificateProfileName"
-    value = length(azapi_resource.certificate_profile) > 0 ? azapi_resource.certificate_profile[0].name : ""
+    value = var.certificate_profile_name
+  }
+
+  variable {
+    name  = "artifactSigningResourceGroupName"
+    value = azurerm_resource_group.rg.name
+  }
+
+  variable {
+    name  = "artifactSigningCertificateProfileType"
+    value = var.certificate_profile_type
+  }
+
+  variable {
+    name  = "adoServicePrincipalObjectId"
+    value = var.ado_create_app ? azuread_service_principal.ado_sp[0].object_id : ""
   }
 }
 

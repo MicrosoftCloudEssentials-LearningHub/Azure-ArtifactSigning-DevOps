@@ -75,6 +75,6 @@ output "keyvault_id" {
 }
 
 output "keyvault_name" {
-  value       = var.keyvault_enabled ? azurerm_key_vault.kv[0].name : null
+  value       = var.keyvault_enabled ? local.keyvault_name_effective : null
   description = "Key Vault name (null unless keyvault_enabled=true)."
 }
