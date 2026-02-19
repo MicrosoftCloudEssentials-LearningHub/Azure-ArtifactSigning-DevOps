@@ -1,4 +1,4 @@
-# Demo: Azure Artifact Signing (GitHub Actions/ADO + Terraform)
+# Demo: Azure Artifact Signing (GitHub Actions + Terraform)
 
 Costa Rica
 
@@ -19,6 +19,10 @@ Last updated: 2026-02-19
 
 - [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifact-signing/overview)
 - [Artifact Signing](https://azure.microsoft.com/en-us/products/artifact-signing?msockid=38ec3806873362243e122ce086486339)
+- [Artifact Signing pricing](https://azure.microsoft.com/en-us/pricing/details/artifact-signing/?msockid=38ec3806873362243e122ce086486339)
+- [Quickstart: Set up Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart?tabs=registerrp-portal%2Caccount-portal%2Corgvalidation%2Ccertificateprofile-portal%2Cdeleteresources-portal)
+- [Set up signing integrations to use Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations)
+- [Microsoft Included CA Certificate List](https://ccadb.my.salesforce-sites.com/microsoft/IncludedCACertificateReportForMSFT)
 
 </details>
 
@@ -46,9 +50,12 @@ Last updated: 2026-02-19
 - Resource group
 - Artifact Signing account (`Microsoft.CodeSigning/codeSigningAccounts`)
 - Key Vault (RBAC-enabled) for pipeline variables/secrets (created by default)
-- Certificate profile (`.../certificateProfiles`)
-  - Preferred: created by the GitHub Actions workflow after you set the Key Vault secret `artifactSigningIdentityValidationId` (no second `terraform apply`)
-  - Optional: created by Terraform if you set `identity_validation_id` and re-apply
+
+Certificate profile + identity validation are created in the Azure Portal (service requirement).
+
+Optional advanced paths:
+- Terraform can create the certificate profile if you set `identity_validation_id` and re-run `terraform apply`.
+- The GitHub Actions workflow can create it if you opt in via `AUTO_CREATE_CERT_PROFILE: 'true'` in the workflow (requires broader RBAC such as RG `Contributor`).
 
 When `github_enabled = true`, Terraform also creates:
 - Entra app registration + service principal for GitHub Actions (OIDC)
@@ -60,113 +67,116 @@ From [What is Artifact Signing?](https://learn.microsoft.com/en-us/azure/artifac
 
 > [!NOTE]
 > - **Identity validation** itself is **portal-only** (service requirement). Terraform can’t complete that workflow.
-> - After you complete it, set Key Vault secret `artifactSigningIdentityValidationId` and the GitHub Actions workflow will create the certificate profile automatically.
+> - The **Identity validation Id** is not exposed via the Azure management API for the code signing account, so Terraform cannot “wait and fetch” it automatically.
+> - Identity validation + certificate profile creation can be done entirely in the portal.
+> - If you want Terraform (or the workflow) to create the certificate profile, you must copy the Identity validation Id from the portal.
 
 ## Deploy with Terraform
 
 Terraform files live in `terraform-infrastructure/`.
 
+If you're using GitHub Actions, prefer the fully automated bootstrap path below (it configures GitHub OIDC + secrets and runs Terraform for you):
+
+```pwsh
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-github-actions.ps1
+```
+
 1) Edit `terraform-infrastructure/terraform.tfvars` and set a globally-unique account name.
 
-2) Run Terraform:
+Not using the bootstrap script? See the internal runbook: [_docs/README.md](_docs/README.md).
+
+By default (`github_autodetect = true`), Terraform will auto-detect `github_owner/github_repo` during `terraform apply` (from GitHub Actions env vars if present, otherwise from your local git `origin`). `github_ref` defaults to `refs/heads/main` unless you set it explicitly.
+
+If this repo is not a git clone (for example, you downloaded a zip) or `origin` is not set to GitHub, autodetect can’t determine the values.
+
+2) Run Terraform (manual):
 
 ```pwsh
 cd terraform-infrastructure
 terraform init
-terraform validate
 terraform apply -auto-approve
 ```
 
-3) Artifact Signing **identity verification / identity validation** (portal-only):
+What this first `terraform apply` does:
+- Creates the resource group, Artifact Signing account, and Key Vault.
+- Populates Key Vault secrets for the workflow (`artifactSigningEndpoint`, `artifactSigningAccountName`, `artifactSigningCertificateProfileName`).
+- If `github_enabled = true`: creates the GitHub OIDC Entra app/service principal + federated identity credential, and assigns RBAC so the workflow can read Key Vault secrets and sign.
 
-- In Azure portal, open the Artifact Signing account and complete **Identity validation**.
-- This is required by the service and cannot be automated by Terraform.
-- If the portal says you need **Artifact Signing Identity Verifier**, re-run Terraform (it assigns this role to the identity running `terraform apply` by default) and wait a few minutes for RBAC to propagate.
+What it cannot do:
+- Complete Artifact Signing **identity validation** (this is portal-only).
 
-4) Copy the **Identity validation Id** from the portal and set it in Key Vault:
+Identity validation (portal-only):
 
-```pwsh
-$kvName = terraform -chdir=terraform-infrastructure output -raw keyvault_name
-az keyvault secret set --vault-name $kvName --name artifactSigningIdentityValidationId --value "00000000-0000-0000-0000-000000000000"
-```
 
-5) Run the GitHub Actions workflow. It will create the certificate profile if it doesn’t exist yet, then sign the binaries.
+In Azure portal:
+- Open the Artifact Signing account and complete **Identity validation**.
+- Create the **certificate profile** (use the same name as `certificate_profile_name`).
 
-Optional: If you prefer Terraform to manage the certificate profile instead, set `identity_validation_id` in `terraform-infrastructure/terraform.tfvars` and run `terraform apply` again.
+Optional (Terraform-managed certificate profile):
+- Copy the **Identity validation Id** (GUID) from the portal.
+- Paste it into `identity_validation_id` in `terraform-infrastructure/terraform.tfvars`.
+- Run `terraform apply` again.
+
+Push/merge to `main` (or run the workflow via `workflow_dispatch`). The GitHub Actions workflow will build + sign the binaries.
 
 ## Azure Key Vault for workflow variables
 
-Terraform creates a Key Vault by default and wires RBAC so:
-- your current identity (the identity running `terraform apply`) can set secrets (`Key Vault Secrets Officer`)
-- the GitHub Actions service principal can read secrets (`Key Vault Secrets User`)
+Terraform creates a Key Vault by default and wires RBAC so the workflow can read signing inputs.
 
-> This Key Vault is **RBAC-enabled** (`rbac_authorization_enabled = true`). You will see access under **Key Vault → Access control (IAM)** (not under “Access policies”).
+| Principal | Role assigned | Why it exists |
+| --- | --- | --- |
+| Your current identity (the identity running `terraform apply`) | `Key Vault Secrets Officer` | Can set secrets during provisioning |
+| GitHub Actions service principal | `Key Vault Secrets User` | Can read secrets at workflow runtime |
+
+> [!NOTE]
+> - This Key Vault is **RBAC-enabled** (`rbac_authorization_enabled = true`). You will see access under **Key Vault → Access control (IAM)** (not under “Access policies”).
+> - The GitHub Actions workflow reads them from Key Vault at runtime using the Azure CLI.
 
 Least privilege options:
-- Set `keyvault_populate_secrets = false` if you do not want Terraform to write secrets into Key Vault (you can manage secrets yourself and/or set pipeline variables another way).
-- If you want to view **Keys** and/or **Certificates** in the Azure portal, opt in to RBAC for your current identity:
-  - `keyvault_grant_keys_access_to_current = true` (assigns `Key Vault Crypto User`)
-  - `keyvault_grant_certificates_access_to_current = true` (assigns `Key Vault Certificates User`)
-  - Or, if you want the simplest “make the portal work” option (broad permissions):
-    - `keyvault_grant_administrator_to_current = true` (assigns `Key Vault Administrator`)
+
+| Setting / choice | Effect |
+| --- | --- |
+| `keyvault_populate_secrets = false` | Terraform will not write secrets into Key Vault (you can manage secrets yourself and/or set pipeline variables another way). |
+| `keyvault_grant_keys_access_to_current = true` | Grants your current identity `Key Vault Crypto User` (lets you view **Keys** in the portal). |
+| `keyvault_grant_certificates_access_to_current = true` | Grants your current identity `Key Vault Certificates User` (lets you view **Certificates** in the portal). |
+| `keyvault_grant_administrator_to_current = true` | Simplest “make the portal work” option (broad permissions): grants your current identity `Key Vault Administrator`. |
 
 Terraform also populates these Key Vault secrets during `terraform apply`:
-- `artifactSigningEndpoint`
-- `artifactSigningAccountName`
-- `artifactSigningCertificateProfileName`
-- `artifactSigningIdentityValidationId` (placeholder until you set it after portal validation)
 
-The GitHub Actions workflow reads them from Key Vault at runtime using the Azure CLI.
+| Secret name | Notes |
+| --- | --- |
+| `artifactSigningEndpoint` | Service endpoint used by the workflow |
+| `artifactSigningAccountName` | Artifact Signing account name |
+| `artifactSigningCertificateProfileName` | Certificate profile name |
+| `artifactSigningIdentityValidationId` | Optional. Only needed if Terraform or the workflow will create the certificate profile. |
+
 
 If signing fails with 403, validate:
-- Endpoint matches region
-- GitHub Actions identity has `Artifact Signing Certificate Profile Signer` at the certificate profile scope
 
-## GitHub Actions (recommended)
+| Check | Expected |
+| --- | --- |
+| Endpoint matches region | `artifactSigningEndpoint` points to the correct region |
+| Role at certificate profile scope | GitHub Actions identity has `Artifact Signing Certificate Profile Signer` at the certificate profile scope |
 
-This repo includes a GitHub Actions workflow that performs the end-to-end signing flow:
+## GitHub Actions
+
+This repo includes a GitHub Actions workflow that performs the signing flow:
 - build/publish unsigned exe
 - load signing inputs from Key Vault
-- create the certificate profile if missing (after you complete portal identity validation)
 - sign + verify + upload artifact
 
 Workflow file:
 - [.github/workflows/artifact-signing.yml](.github/workflows/artifact-signing.yml)
 
-### Enable GitHub OIDC (Terraform)
+### GitHub OIDC
 
-1) In [terraform-infrastructure/terraform.tfvars](terraform-infrastructure/terraform.tfvars), set:
-- `github_enabled = true`
-- `github_owner = "<your-owner>"`
-- `github_repo = "<your-repo>"`
-- `github_ref = "refs/heads/main"` (or your default branch)
+Why this exists:
+- GitHub Actions must authenticate to Azure to (1) read signing inputs from Key Vault and (2) call the Artifact Signing service.
+- OIDC lets GitHub obtain an Azure token **without** storing an Azure client secret in GitHub.
 
-2) Run:
+In this repo, OIDC + GitHub secrets are configured automatically by the bootstrap step in **Deploy with Terraform**.
 
-```pwsh
-cd terraform-infrastructure
-terraform apply -auto-approve
-```
-
-Terraform outputs the Entra app client id for GitHub:
-- `github_app_client_id`
-
-### Configure GitHub repo secrets
-
-In GitHub → Settings → Secrets and variables → Actions, set these **Secrets**:
-
-- `AZURE_CLIENT_ID` = Terraform output `github_app_client_id`
-- `AZURE_TENANT_ID` = your Entra tenant id
-- `AZURE_SUBSCRIPTION_ID` = your Azure subscription id
-- `KEYVAULT_NAME` = Terraform output `keyvault_name`
-- `ARTIFACT_SIGNING_RESOURCE_GROUP` = Terraform output `resource_group_name`
-
-Then push to `main` (or run the workflow manually via `workflow_dispatch`).
-
-Notes:
-- The workflow uses OIDC, so there is no Azure client secret.
-- The GitHub Actions identity must have RBAC to read Key Vault secrets (`Key Vault Secrets User`) and to sign (`Artifact Signing Certificate Profile Signer`).
-- If you want the workflow to auto-create the certificate profile, you typically also need RG `Contributor` for that identity (`assign_contributor_role_to_github_sp = true`).
+Manual (service requirement): complete the **Identity validation** step in the Azure Portal when prompted.
 
 ## Azure Portal link
 

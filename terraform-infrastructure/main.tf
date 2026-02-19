@@ -23,13 +23,49 @@ locals {
 
   keyvault_name_input = var.keyvault_name != null ? trimspace(var.keyvault_name) : ""
 
-  github_owner_trimmed = trimspace(var.github_owner == null ? "" : var.github_owner)
-  github_repo_trimmed  = trimspace(var.github_repo == null ? "" : var.github_repo)
-  github_ref_trimmed   = trimspace(var.github_ref)
-  github_repository    = (local.github_owner_trimmed != "" && local.github_repo_trimmed != "") ? "${local.github_owner_trimmed}/${local.github_repo_trimmed}" : null
-  github_fic_subject   = local.github_repository != null ? "repo:${local.github_repository}:ref:${local.github_ref_trimmed}" : null
+  github_owner_input_trimmed = trimspace(var.github_owner == null ? "" : var.github_owner)
+  github_repo_input_trimmed  = trimspace(var.github_repo == null ? "" : var.github_repo)
+  github_ref_input_trimmed   = trimspace(var.github_ref)
+
+  github_owner_detected = try(trimspace(data.external.github_oidc[0].result.owner), "")
+  github_repo_detected  = try(trimspace(data.external.github_oidc[0].result.repo), "")
+  github_ref_detected   = try(trimspace(data.external.github_oidc[0].result.ref), "")
+
+  github_owner_effective = var.github_enabled ? (
+    (local.github_owner_input_trimmed != "" && !strcontains(upper(local.github_owner_input_trimmed), "REPLACE_ME")) ? local.github_owner_input_trimmed : local.github_owner_detected
+  ) : null
+
+  github_repo_effective = var.github_enabled ? (
+    (local.github_repo_input_trimmed != "" && !strcontains(upper(local.github_repo_input_trimmed), "REPLACE_ME")) ? local.github_repo_input_trimmed : local.github_repo_detected
+  ) : null
+
+  github_ref_effective = var.github_enabled ? (
+    local.github_ref_input_trimmed != "" ? local.github_ref_input_trimmed : (
+      local.github_ref_detected != "" ? local.github_ref_detected : "refs/heads/main"
+    )
+  ) : null
+
+  github_repository  = (local.github_owner_effective != null && local.github_owner_effective != "" && local.github_repo_effective != null && local.github_repo_effective != "") ? "${local.github_owner_effective}/${local.github_repo_effective}" : null
+  github_fic_subject = local.github_repository != null ? "repo:${local.github_repository}:ref:${local.github_ref_effective}" : null
 
   github_sp_object_id_effective = var.github_enabled ? try(azuread_service_principal.github_sp[0].object_id, null) : null
+}
+
+data "external" "github_oidc" {
+  count = var.github_enabled && var.github_autodetect ? 1 : 0
+
+  program = [
+    "pwsh",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "${path.module}/detect-github-oidc.ps1"
+  ]
+
+  query = {
+    enabled = "true"
+  }
 }
 
 data "azurerm_client_config" "current" {}
@@ -67,14 +103,14 @@ resource "azurerm_role_assignment" "current_identity_verifier" {
 }
 
 resource "azapi_resource" "certificate_profile" {
-  count     = var.identity_validation_id == null ? 0 : 1
+  count     = local.identity_validation_id_trimmed != "" ? 1 : 0
   type      = "Microsoft.CodeSigning/codeSigningAccounts/certificateProfiles@2025-10-13"
   name      = var.certificate_profile_name
   parent_id = azapi_resource.code_signing_account.id
 
   body = {
     properties = {
-      identityValidationId  = var.identity_validation_id
+      identityValidationId  = local.identity_validation_id_trimmed
       profileType           = var.certificate_profile_type
       includeStreetAddress  = var.certificate_profile_include_street_address
       includePostalCode     = var.certificate_profile_include_postal_code
@@ -102,6 +138,20 @@ resource "azuread_application_federated_identity_credential" "github_fic" {
   subject        = local.github_fic_subject
 
   depends_on = [azuread_service_principal.github_sp]
+
+  lifecycle {
+    precondition {
+      condition = (
+        var.github_enabled == false || (
+          local.github_owner_effective != null && local.github_owner_effective != "" &&
+          local.github_repo_effective != null && local.github_repo_effective != "" &&
+          local.github_ref_effective != null && can(regex("^refs/heads/[^\\s]+$", local.github_ref_effective))
+        )
+      )
+
+      error_message = "github_enabled=true but GitHub repo/ref could not be determined. Either set github_owner/github_repo/github_ref explicitly, or set github_autodetect=true and run Terraform from a git clone with origin pointing to https://github.com/<owner>/<repo>.git (or SSH equivalent)."
+    }
+  }
 }
 
 resource "azurerm_role_assignment" "github_account_signer" {

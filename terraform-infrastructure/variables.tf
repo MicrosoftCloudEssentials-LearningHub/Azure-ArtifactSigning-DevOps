@@ -93,6 +93,12 @@ variable "github_enabled" {
   default     = false
 }
 
+variable "github_autodetect" {
+  type        = bool
+  description = "If true and github_enabled=true, Terraform will attempt to auto-detect github_owner/github_repo/github_ref from the local git repo during plan/apply (via the external data source)."
+  default     = true
+}
+
 variable "github_owner" {
   type        = string
   description = "GitHub repository owner/org (used for the federated identity subject). Required when github_enabled=true."
@@ -101,7 +107,7 @@ variable "github_owner" {
 
   validation {
     condition = (
-      var.github_enabled == false || (
+      var.github_enabled == false || var.github_autodetect == true || (
         length(trimspace(var.github_owner == null ? "" : var.github_owner)) > 0 &&
         !strcontains(upper(trimspace(var.github_owner == null ? "" : var.github_owner)), "REPLACE_ME")
       )
@@ -118,7 +124,7 @@ variable "github_repo" {
 
   validation {
     condition = (
-      var.github_enabled == false || (
+      var.github_enabled == false || var.github_autodetect == true || (
         length(trimspace(var.github_repo == null ? "" : var.github_repo)) > 0 &&
         !strcontains(upper(trimspace(var.github_repo == null ? "" : var.github_repo)), "REPLACE_ME")
       )
@@ -134,7 +140,7 @@ variable "github_ref" {
 
   validation {
     condition = (
-      var.github_enabled == false || can(regex("^refs/heads/[^\\s]+$", trimspace(var.github_ref)))
+      var.github_enabled == false || var.github_autodetect == true || can(regex("^refs/heads/[^\\s]+$", trimspace(var.github_ref)))
     )
     error_message = "github_ref must look like refs/heads/<branch> when github_enabled=true."
   }
