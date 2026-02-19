@@ -51,7 +51,12 @@ Last updated: 2026-02-19
 - Artifact Signing account (`Microsoft.CodeSigning/codeSigningAccounts`)
 - Key Vault (RBAC-enabled) for pipeline variables/secrets (created by default)
 
-Certificate profile + identity validation are created in the Azure Portal (service requirement).
+  <img width="650" alt="image" src="https://github.com/user-attachments/assets/c8bd7550-d77f-411d-bed8-8e016fe7d1e9" />
+
+> [!NOTE]
+> identity validation + Certificate profile are created in the Azure Portal (service requirement).
+
+<img width="650" alt="image" src="https://github.com/user-attachments/assets/16ef1341-6230-4908-bb32-af17c7af9223" />
 
 Optional advanced paths:
 - Terraform can create the certificate profile if you set `identity_validation_id` and re-run `terraform apply`.
