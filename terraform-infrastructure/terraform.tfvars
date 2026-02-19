@@ -20,19 +20,9 @@ keyvault_enabled = true
 # grant the identity running `terraform apply` the Key Vault Administrator role.
 keyvault_grant_administrator_to_current = true
 
-# Azure DevOps Workload Identity Federation (optional)
-ado_enabled         = false
-ado_org_service_url = "https://dev.azure.com/REPLACE_ME"
-
-# Auth for the azuredevops provider is usually via PAT:
-#   $env:AZDO_PERSONAL_ACCESS_TOKEN = "..."
-
-ado_create_app = true
-
-# If you set ado_service_endpoint_authentication_scheme = "ServicePrincipal",
-# also set the secret via an env var instead of checking it in:
-#   $env:TF_VAR_ado_service_principal_client_secret = "..."
-
-# If ado_enabled=true and Terraform creates the service connection, Issuer/Subject are auto-populated.
-ado_wif_issuer  = null
-ado_wif_subject = null
+# GitHub Actions OIDC (recommended)
+# Set these to match your GitHub repo, so Terraform can create the federated identity credential.
+github_enabled = false
+github_owner   = "REPLACE_ME"
+github_repo    = "Azure-ArtifactSigning-DevOps"
+github_ref     = "refs/heads/main"

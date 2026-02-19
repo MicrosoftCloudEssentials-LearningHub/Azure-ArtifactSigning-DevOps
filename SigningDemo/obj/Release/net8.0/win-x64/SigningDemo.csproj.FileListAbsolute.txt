@@ -1,0 +1,15 @@
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\SigningDemo.exe
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\SigningDemo.deps.json
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\SigningDemo.runtimeconfig.json
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\SigningDemo.dll
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\bin\Release\net8.0\win-x64\SigningDemo.pdb
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.AssemblyInfoInputs.cache
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.AssemblyInfo.cs
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.csproj.CoreCompileInputs.cache
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.sourcelink.json
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.dll
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\refint\SigningDemo.dll
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.pdb
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\SigningDemo.genruntimeconfig.cache
+C:\Users\timnab\Downloads\Azure-ArtifactSigning-DevOps\SigningDemo\obj\Release\net8.0\win-x64\ref\SigningDemo.dll
