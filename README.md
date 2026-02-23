@@ -28,6 +28,7 @@ Last updated: 2026-02-19
 - [Artifact Signing resources and roles](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-resources-roles)
 - [Artifact Signing - The Artifact Signing Action allows you to digitally sign your files using a Artifact Signing certificate during a GitHub Actions run](https://github.com/azure/artifact-signing-action) - repo
 - [Tutorial: Assign roles in Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles)
+- [Artifact Signing certificate management](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-certificate-management?utm_source=copilot.com)
 
 </details>
 
