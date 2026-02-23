@@ -14,6 +14,7 @@ Last updated: 2026-02-19
 > - “Trusted Signing” = service branding/experience
 > - “Microsoft.CodeSigning/*” = the deployable Azure resources you manage with Terraform/ARM.
 
+
 <details>
 <summary><b>List of References </b> (Click to expand)</summary>
 
@@ -29,6 +30,22 @@ Last updated: 2026-02-19
 - [Tutorial: Assign roles in Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles)
 
 </details>
+
+<details>
+<summary><b>Table of Content </b> (Click to expand)</summary>
+   
+- [Prerequisites](#prereqs)
+- [What Terraform Creates](#what-terraform-creates)
+- [Deploy with Terraform](#deploy-with-terraform)
+- [Azure Key Vault for Workflow Variables](#azure-key-vault-for-workflow-variables)
+- [GitHub Actions](#github-actions)
+  - [GitHub OIDC](#github-oidc)
+
+</details>
+
+<div align="center">
+  <img width="450" alt="image" src="https://github.com/user-attachments/assets/c9fc903c-04f6-4fea-93ed-ae7fe4969cde" style="border: 2px solid #4CAF50; border-radius: 5px; padding: 5px;"/>
+</div>
 
 > This repo is a minimal, demo-friendly setup for:
 > - Provisioning Azure Artifact Signing (Trusted Signing) resources with Terraform.
