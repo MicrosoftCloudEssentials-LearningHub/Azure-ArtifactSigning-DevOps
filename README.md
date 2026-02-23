@@ -35,7 +35,8 @@ Last updated: 2026-02-19
 
 <details>
 <summary><b>Table of Content </b> (Click to expand)</summary>
-   
+
+- [Overview](#overview)
 - [Prerequisites](#prereqs)
 - [What Terraform Creates](#what-terraform-creates)
 - [Deploy with Terraform](#deploy-with-terraform)
@@ -49,12 +50,28 @@ Last updated: 2026-02-19
   <img width="450" alt="image" src="https://github.com/user-attachments/assets/c9fc903c-04f6-4fea-93ed-ae7fe4969cde" style="border: 2px solid #4CAF50; border-radius: 5px; padding: 5px;"/>
 </div>
 
+## Overview 
+
 > This repo is a minimal, demo-friendly setup for:
 > - Provisioning Azure Artifact Signing (Trusted Signing) resources with Terraform.
 > - Building a small Windows .NET executable.
 > - Signing it in GitHub Actions using **SignTool + Artifact Signing dlib** (private key stays in Microsoft-managed HSMs).
 
    <img width="1523" height="743" alt="image" src="https://github.com/user-attachments/assets/5617dfde-d84b-4dd9-904f-7669b4de9374" />
+
+
+> [!NOTE]
+> This report [Microsoft Included CA Certificate List](https://ccadb.my.salesforce-sites.com/microsoft/IncludedCACertificateReportForMSFT) lists all the Certificate Authorities (CAs) whose root certificates are trusted by Microsoft products (Windows, Azure, etc.) and are included in the Microsoft Root Store. From [List of Participants - Microsoft Trusted Root Program](https://learn.microsoft.com/en-us/security/trusted-root/participants-list?utm_source=copilot.com). When you use Azure Artifact Signing (Trusted Signing):
+> - Microsoft leverages certificates from trusted CAs in this program.
+> - For public trust signing, the certificates chain back to one of these Microsoft‑trusted root CAs.
+> - For private trust signing, you can use enterprise CAs that are not necessarily in the public root store but are trusted within your organization.
+> - Specialized certificates (like VBS enclave signing) are also issued under this framework.
+>   
+> Explicit Certificate Types You’ll Encounter (From both Azure Artifact Signing and the Microsoft Trusted Root Program):
+> - Code Signing Certificates (for executables, installers, drivers).
+> - SSL/TLS Certificates (for secure communications).
+> - S/MIME Certificates (for email signing/encryption).
+> - Timestamping Certificates (to ensure signatures remain valid after certificate expiry).
 
 ## Prereqs
 
