@@ -84,8 +84,19 @@ Last updated: 2026-02-19
    ```pwsh
    az provider register --namespace Microsoft.CodeSigning
    ```
+
+> Artifact Signing → For external/public distribution, where you need Microsoft‑managed certificates that chain to trusted CAs. Read more about it [Set up signing integrations to use Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations)
    
-   <img width="772" height="559" alt="arch_Azure-Artifact-Signing_Demo drawio" src="https://github.com/user-attachments/assets/6a8a9f88-7a2b-4f26-8564-7cf39c5f47ff" />
+   <img width="772" height="559" alt="arch_Azure-Artifact-Signing_Demo drawio" src="https://github.com/user-attachments/assets/8d633685-e980-4094-955a-ad752e7fbb06" />
+   
+> Key Vault → For internal/private signing, or when you need to use your own PKI or specialized certs. Read more about [Tutorial: Import a certificate in Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/certificates/tutorial-import-certificate?utm_source=copilot.com&tabs=azure-portal)
+
+   <img width="772" height="559" alt="arch_Azure-Artifact-Signing_Demo-BYO" src="https://github.com/user-attachments/assets/8771423a-259e-41c7-b752-623a2b5359d1" />
+    
+> [!TIP]
+>  You could branch logic:
+> - External release → Artifact Signing
+> - Internal build and test → Key Vault
 
 ## What Terraform creates
 
