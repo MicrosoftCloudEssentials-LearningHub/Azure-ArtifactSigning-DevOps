@@ -31,6 +31,7 @@ Last updated: 2026-02-19
 - [Tutorial: Assign roles in Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles)
 - [Artifact Signing certificate management](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-certificate-management?utm_source=copilot.com)
 - [Signing example with PowerShell Scripts](https://weblog.west-wind.com/posts/2025/Jul/20/Fighting-through-Setting-up-Microsoft-Trusted-Signing)
+- [Tutorial: Import a certificate in Azure Key Vault](https://learn.microsoft.com/en-us/azure/key-vault/certificates/tutorial-import-certificate?utm_source=copilot.com&tabs=azure-portal)
 
 </details>
 
