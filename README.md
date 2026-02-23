@@ -23,6 +23,7 @@ Last updated: 2026-02-19
 - [Artifact Signing pricing](https://azure.microsoft.com/en-us/pricing/details/artifact-signing/?msockid=38ec3806873362243e122ce086486339)
 - [Quickstart: Set up Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart?tabs=registerrp-portal%2Caccount-portal%2Corgvalidation%2Ccertificateprofile-portal%2Cdeleteresources-portal)
 - [Set up signing integrations to use Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations)
+- [List of Participants - Microsoft Trusted Root Program](https://learn.microsoft.com/en-us/security/trusted-root/participants-list?utm_source=copilot.com)
 - [Microsoft Included CA Certificate List](https://ccadb.my.salesforce-sites.com/microsoft/IncludedCACertificateReportForMSFT)
 - [Artifact Signing trust models](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/artifact-signing/concept-trust-models.md)
 - [Artifact Signing resources and roles](https://learn.microsoft.com/en-us/azure/artifact-signing/concept-resources-roles)
